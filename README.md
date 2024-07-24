@@ -15,7 +15,8 @@ In addition to standard discovery methods Shortscan also uses a unique checksum 
 Using a recent version of [go](https://golang.org/):
 
 ```
-go install github.com/bitquark/shortscan/cmd/shortscan@latest
+go install github.com/thezakman/shortscan/cmd/shortscan@latest
+
 ```
 
 ### Manual install
