@@ -102,7 +102,7 @@ type statsOutput struct {
 }
 
 // Version, rainbow table magic, default character set
-const version = "0.9.0"
+const version = "0.9.1"
 const rainbowMagic = "#SHORTSCAN#"
 const alphanum = "JFKGOTMYVHSPCANDXLRWEBQUIZ8549176320"
 
