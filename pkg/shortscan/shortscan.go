@@ -1,10 +1,3 @@
-// ------------------------------------------------------
-// Shortscan
-// An IIS short filename enumeration tool by bitquark
-// ------------------------------------------------------
-// Docs and code: https://github.com/bitquark/shortscan
-// ------------------------------------------------------
-
 package shortscan
 
 import (
@@ -139,6 +132,7 @@ var checksumRegex *regexp.Regexp
 // Command-line arguments and help
 type arguments struct {
 	Urls         []string `arg:"positional,required" help:"url to scan (multiple URLs can be specified)" placeholder:"URL"`
+	List         string   `arg:"--list,-l" help:"file containing list of URLs to scan" placeholder:"FILE"`
 	Wordlist     string   `arg:"-w" help:"combined wordlist + rainbow table generated with shortutil" placeholder:"FILE"`
 	Headers      []string `arg:"--header,-H,separate" help:"header to send with each request (use multiple times for multiple headers)"`
 	Concurrency  int      `arg:"-c" help:"number of requests to make at once" default:"20"`
@@ -168,24 +162,6 @@ func getBanner() string {
 // pathEscape returns an escaped URL with spaces encoded as %20 rather than + (which can cause odd behaviour from IIS in some modes)
 func pathEscape(url string) string {
 	return strings.Replace(nurl.QueryEscape(url), "+", "%20", -1)
-}
-
-// replace bin::$INDEX_ALLOCATION to /(S(x))/b/(S(x))in/ to download .DLL
-func replaceBinALLOCATION(url string) string {
-	u, _ := nurl.Parse(url)
-	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
-	lastSegment := segments[len(segments)-1]
-
-	if lastSegment == "bin::$INDEX_ALLOCATION" {
-		newPath := strings.Join(segments[:len(segments)-1], "/")
-		if newPath == "" {
-			newPath = "(S(x))/b/(S(x))in/"
-		} else {
-			newPath += "/(S(x))/b/(S(x))in/"
-		}
-		url = u.Scheme + "://" + u.Host + "/" + newPath
-	}
-	return url
 }
 
 // fetch requests the given URL and returns an HTTP response object, handling retries gracefully
@@ -373,11 +349,6 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 									// Skip this filename if it collides with a known discovery
 									if _, ok := ac.foundFiles[path]; ok {
 										return
-									}
-									
-									// replace bin::$INDEX_ALLOCATION to /(S(x))/b/(S(x))in/ to download .DLL
-									if strings.ToLower(br.ext) == ".dll" {
-										br.url = replaceBinALLOCATION(br.url)
 									}
 
 									// Make a request to the candidate URL
@@ -1069,6 +1040,24 @@ func Run() {
 	args.Output = strings.ToLower(args.Output)
 	if args.Output != "human" && args.Output != "json" {
 		p.Fail("output must be one of: human, json")
+	}
+
+	// Read URLs from file if --list is provided
+	if args.List != "" {
+		file, err := os.Open(args.List)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Fatal("Unable to open URL list file")
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			args.Urls = append(args.Urls, scanner.Text())
+		}
+
+		if err := scanner.Err(); err != nil {
+			log.WithFields(log.Fields{"err": err}).Fatal("Error reading URL list file")
+		}
 	}
 
 	// Say hello
