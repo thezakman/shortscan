@@ -16,9 +16,9 @@ import (
 	"net/http/httputil"
 	"github.com/fatih/color"
 	"github.com/alexflint/go-arg"
-	"github.com/bitquark/shortscan/pkg/maths"
-	"github.com/bitquark/shortscan/pkg/shortutil"
-	"github.com/bitquark/shortscan/pkg/levenshtein"
+	"github.com/thezakman/shortscan/pkg/maths"
+	"github.com/thezakman/shortscan/pkg/shortutil"
+	"github.com/thezakman/shortscan/pkg/levenshtein"
 	log "github.com/sirupsen/logrus"
 	nurl "net/url"
 )
