@@ -1,8 +1,8 @@
 // ----------------------------------------------------
 // Shortutil
-// A short filename utility written by bitquark
+// A short filename utility written by bitquark & TheZakMan
 // ----------------------------------------------------
-// Docs and code: https://github.com/bitquark/shortscan
+// Docs and code: https://github.com/thezakman/shortscan
 // ----------------------------------------------------
 
 package main

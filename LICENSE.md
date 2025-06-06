@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2019 Bitquark https://bitquark.io/
+Copyright (c) 2025 Bitquark (https://bitquark.io/) & TheZakMan (http://tzm.ink)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

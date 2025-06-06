@@ -1,8 +1,8 @@
 // ----------------------------------------------------------
 // Shortscan
-// An IIS short filename enumeration tool written by bitquark
+// An IIS short filename enumeration tool written by bitquark & TheZakMan
 // ----------------------------------------------------------
-// Docs and code: https://github.com/bitquark/shortscan
+// Docs and code: https://github.com/thezakman/shortscan
 // ----------------------------------------------------------
 
 package main
