@@ -456,6 +456,21 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 func testIndexAllocations(urls []string, hc *http.Client, st *httpStats, wc wordlistConfig, mk markers) {
 	paths := []string{"::$INDEX_ALLOCATION"}
 	for _, url := range urls {
+		// Ensure URL has proper format and add /bin path
+		url = strings.TrimSuffix(url, "/")
+		
+		// Parse URL to check if it has a path
+		parsedURL, err := nurl.Parse(url)
+		if err != nil {
+			log.WithFields(log.Fields{"url": url, "error": err}).Error("Unable to parse URL")
+			continue
+		}
+		
+		// If URL has no path or only "/", add /bin
+		if parsedURL.Path == "" || parsedURL.Path == "/" {
+			url = url + "/bin"
+		}
+		
 		for _, p := range paths {
 			modifiedURL := url + p
 			Scan([]string{modifiedURL}, hc, st, wc, mk, make(map[string]struct{}))
@@ -632,11 +647,13 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc wordlistConfig, mk m
 
 		// Pre-flight: validate URL and check accessibility
 		if _, err := nurl.Parse(url); err != nil {
-			log.WithFields(log.Fields{"url": url, "error": err}).Fatal("Unable to parse URL")
+			log.WithFields(log.Fields{"url": url, "error": err}).Error("Unable to parse URL")
+			continue
 		}
 		res, err := fetch(hc, st, "GET", url+".aspx")
 		if err != nil {
-			log.WithFields(log.Fields{"error": err}).Fatal("Unable to access server")
+			log.WithFields(log.Fields{"error": err}).Error("Unable to access server")
+			continue
 		}
 
 		printHuman("\n════════════════════════════════════════════════════════════════════════════════")
