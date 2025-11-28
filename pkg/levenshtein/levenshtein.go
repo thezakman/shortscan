@@ -2,7 +2,7 @@ package levenshtein
 
 import (
         "unicode/utf8"
-	"github.com/bitquark/shortscan/pkg/maths"
+	"github.com/thezakman/shortscan/pkg/maths"
 )
 
 // Distance returns the Levenshtein edit distance for two strings

@@ -15,7 +15,7 @@ In addition to standard discovery methods Shortscan also uses a unique checksum 
 Using a recent version of [go](https://golang.org/):
 
 ```
-go install github.com/bitquark/shortscan/cmd/shortscan@latest
+go install github.com/thezakman/shortscan/cmd/shortscan@latest
 ```
 
 ### Manual install
@@ -49,18 +49,24 @@ To check whether a site is vulnerable without performing file enumeration use:
 shortscan --isvuln
 ```
 
+To test for Source Code Disclosure in ASP.NET `::$INDEX_ALLOCATION` and `:$i30:$INDEX_ALLOCATION` vulnerabilities:
+```
+shortscan http://www.example.org/bin -i -w ~/wordlists/rainbow/dll.rainbow --fullurl --autocomplete method
+```
+
 ### Advanced features
 
 The following options allow further tweaks:
 
 ```
-Shortscan v0.7 · an IIS short filename enumeration tool by bitquark
+Shortscan v0.9.4 · an IIS short filename enumeration tool by bitquark & TheZakMan
 Usage: shortscan [--wordlist FILE] [--header HEADER] [--concurrency CONCURRENCY] [--timeout SECONDS] [--output type] [--verbosity VERBOSITY] [--fullurl] [--stabilise] [--patience LEVEL] [--characters CHARACTERS] [--autocomplete mode] [--isvuln] URL
 
 Positional arguments:
   URL                    url to scan
 
 Options:
+  --list FILE, -l FILE   file containing list of URLs to scan
   --wordlist FILE, -w FILE
                          combined wordlist + rainbow table generated with shortutil
   --header HEADER, -H HEADER
@@ -69,11 +75,12 @@ Options:
                          number of requests to make at once [default: 20]
   --timeout SECONDS, -t SECONDS
                          per-request timeout in seconds [default: 10]
-  --output type, -o type
+  --output format, -o format
                          output format (human = human readable; json = JSON) [default: human]
   --verbosity VERBOSITY, -v VERBOSITY
                          how much noise to make (0 = quiet; 1 = debug; 2 = trace) [default: 0]
   --fullurl, -F          display the full URL for confirmed files rather than just the filename [default: false]
+  --norecurse, -n        don't detect and recurse into subdirectories (disabled when autocomplete is disabled) [default: false]
   --stabilise, -s        attempt to get coherent autocomplete results from an unstable server (generates more requests) [default: false]
   --patience LEVEL, -p LEVEL
                          patience level when determining vulnerability (0 = patient; 1 = very patient) [default: 0]
@@ -82,6 +89,9 @@ Options:
   --autocomplete mode, -a mode
                          autocomplete detection mode (auto = autoselect; method = HTTP method magic; status = HTTP status; distance = Levenshtein distance; none = disable) [default: auto]
   --isvuln, -V           bail after determining whether the service is vulnerable [default: false]
+  --index, -i            test ::$INDEX_ALLOCATION and :$i30:$INDEX_ALLOCATION
+  --backwards-recurse, -r
+                         perform regressive scanning on parent directories [default: false]
   --help, -h             display this help and exit
   --version              display version and exit
 ```
@@ -109,7 +119,7 @@ shortutil checksum index.html
 Run `shortutil <command> --help` for a definiteive list of options for each command.
 
 ```
-Shortutil v0.3 · a short filename utility by bitquark
+Shortutil v0.9.4 · a short filename utility by bitquark & TheZakMan
 Usage: main <command> [<args>]
 
 Options:
@@ -127,5 +137,9 @@ A custom wordlist was built for shortscan. For full details see [pkg/shortscan/r
 ## Credit
 
 Original IIS short filename [research](https://soroush.secproject.com/downloadable/microsoft_iis_tilde_character_vulnerability_feature.pdf) by Soroush Dalili.
+
+Source Code Disclosure in ASP.NET [research](https://swarm.ptsecurity.com/source-code-disclosure-in-asp-net-apps/) by Arseniy Sharoglazov.
+
+Implementation of the `-i` feature by [ke0ge](https://github.com/ke0ge/).
 
 Additional research and this project by [bitquark](https://github.com/bitquark).

@@ -1,8 +1,8 @@
 // ----------------------------------------------------
 // Shortutil
-// A short filename utility written by bitquark
+// A short filename utility written by bitquark & TheZakMan
 // ----------------------------------------------------
-// Docs and code: https://github.com/bitquark/shortscan
+// Docs and code: https://github.com/thezakman/shortscan
 // ----------------------------------------------------
 
 package shortutil
@@ -20,7 +20,7 @@ import (
 	"net/url"
 	"github.com/fatih/color"
 	"github.com/alexflint/go-arg"
-	"github.com/bitquark/shortscan/pkg/maths"
+	"github.com/thezakman/shortscan/pkg/maths"
 )
 
 type wordlistRecord struct {
@@ -181,7 +181,7 @@ func Run() {
 	// Parse command-line arguments
 	p := arg.MustParse(&args)
 	if p.Subcommand() == nil {
-		fmt.Println(color.New(color.FgBlue, color.Bold).Sprint("Shortutil v" + version), "·", color.New(color.FgWhite, color.Bold).Sprint("a short filename utility by bitquark"))
+		fmt.Println(color.New(color.FgBlue, color.Bold).Sprint("Shortutil v" + version), "·", color.New(color.FgWhite, color.Bold).Sprint("a short filename utility by bitquark & TheZakMan"))
 		p.WriteHelp(os.Stderr)
 		os.Exit(1)
 	}
