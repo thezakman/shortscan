@@ -163,7 +163,7 @@ var args arguments
 // getBanner returns the main banner
 func getBanner() string {
 	return color.New(color.FgWhite, color.Bold).Sprint("🧩 Shortscan v" + version) +
-		" · " + color.New(color.FgBlue, color.Bold).Sprint("an IIS short filename enumeration | bitquark & TheZakMan")
+		" · " + color.New(color.FgBlue, color.Bold).Sprint("an IIS short filename enumeration ") + color.New(color.FgWhite).Sprint("· (bitquark & TheZakMan)")
 }
 
 // pathEscape returns an escaped URL with spaces encoded as %20 rather than + (which can cause odd behaviour from IIS in some modes)
