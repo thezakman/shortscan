@@ -2,10 +2,15 @@ package shortscan
 
 import (
 	"bufio"
+	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httputil"
@@ -13,8 +18,10 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alexflint/go-arg"
@@ -69,6 +76,7 @@ type wordlistConfig struct {
 type attackConfig struct {
 	method            string
 	suffix            string
+	override          string // non-empty => tamper via X-HTTP-Method-Override header chain, value is wire verb
 	tildes            []string
 	fileChars         map[string]string
 	extChars          map[string]string
@@ -79,15 +87,199 @@ type attackConfig struct {
 	autocompleteMutex sync.Mutex
 }
 
+// hashBucket stores the SHA-256 fingerprints and content-length band for
+// "known-miss" responses per extension + status code.  Used by the `hash`
+// autocomplete mode as a cheap, stable alternative to Levenshtein.
+type hashBucket struct {
+	sums      map[string]struct{}
+	minLen    int
+	maxLen    int
+	populated bool
+}
+
+var hashCache map[string]map[int]*hashBucket
+var hashMutex sync.Mutex
+
+// iisFingerprint captures what we were able to glean from banner headers.
+// Populated once per host during the probe stage; used by prioritiseProbeOrder
+// to front-load the verb/suffix combinations most likely to work.
+type iisFingerprint struct {
+	server        string
+	isIIS         bool
+	majorVersion  int
+	aspNet        bool
+	aspNetCore    bool
+	poweredByPHP  bool
+	kestrelFront  bool
+	hasWAFMarkers bool
+}
+
+// rateLimiter is a tiny token-bucket shaped around time.Ticker.  Built to avoid
+// an external dependency; a miss on Take() blocks until the next tick.  The
+// adaptive fields are nudged by fetch() when it sees 429/503/Retry-After.
+type rateLimiter struct {
+	mu       sync.Mutex
+	interval time.Duration   // minimum gap between requests (0 = disabled)
+	next     time.Time       // earliest time the next request may run
+	penalty  time.Duration   // stacked backoff from adaptive throttling
+	adaptive bool
+	enabled  bool
+}
+
+func newRateLimiter(rps float64, adaptive bool) *rateLimiter {
+	rl := &rateLimiter{adaptive: adaptive}
+	if rps > 0 {
+		rl.interval = time.Duration(float64(time.Second) / rps)
+		rl.enabled = true
+	} else if adaptive {
+		rl.enabled = true
+	}
+	return rl
+}
+
+// Wait blocks until the caller is allowed to issue the next request.
+func (rl *rateLimiter) Wait(ctx context.Context) error {
+	if rl == nil || !rl.enabled {
+		return nil
+	}
+	rl.mu.Lock()
+	now := time.Now()
+	var sleepFor time.Duration
+	if rl.interval > 0 {
+		if now.Before(rl.next) {
+			sleepFor = rl.next.Sub(now)
+		}
+		rl.next = now.Add(sleepFor).Add(rl.interval)
+	}
+	if rl.penalty > 0 {
+		sleepFor += rl.penalty
+		rl.next = rl.next.Add(rl.penalty)
+		// Bleed penalty down: half-life ~1s of clock time.
+		rl.penalty = rl.penalty / 2
+		if rl.penalty < 10*time.Millisecond {
+			rl.penalty = 0
+		}
+	}
+	rl.mu.Unlock()
+	if sleepFor <= 0 {
+		return nil
+	}
+	select {
+	case <-time.After(sleepFor):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Throttle increases the backoff, typically in response to 429/503/Retry-After.
+func (rl *rateLimiter) Throttle(d time.Duration) {
+	if rl == nil || !rl.adaptive || d <= 0 {
+		return
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	// Clamp so a badly-formed Retry-After can't stall the scan forever.
+	if d > 30*time.Second {
+		d = 30 * time.Second
+	}
+	rl.penalty += d
+	if rl.penalty > 60*time.Second {
+		rl.penalty = 60 * time.Second
+	}
+}
+
+// checkpointWriter persists discovered hits and directories to a newline-
+// delimited JSON file.  On startup we replay the file so scans survive
+// interruption.  Append-only + line-flushed = crash-safe enough for our needs.
+type checkpointWriter struct {
+	mu   sync.Mutex
+	file *os.File
+}
+
+type checkpointRecord struct {
+	Type     string `json:"type"`
+	URL      string `json:"url,omitempty"`
+	FullPath string `json:"fullpath,omitempty"`
+	IsDir    bool   `json:"isdir,omitempty"`
+}
+
+func newCheckpointWriter(path string) (*checkpointWriter, map[string]map[string]bool, map[string]struct{}, error) {
+	// Replay existing state (hits per-URL + visited set) before we truncate nothing.
+	state := make(map[string]map[string]bool) // baseURL -> fullpath -> isDir
+	visited := make(map[string]struct{})
+	if fh, err := os.Open(path); err == nil {
+		sc := bufio.NewScanner(fh)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for sc.Scan() {
+			var r checkpointRecord
+			if json.Unmarshal(sc.Bytes(), &r) != nil {
+				continue
+			}
+			switch r.Type {
+			case "visit":
+				if r.URL != "" {
+					visited[r.URL] = struct{}{}
+				}
+			case "hit":
+				if r.URL != "" && r.FullPath != "" {
+					if _, ok := state[r.URL]; !ok {
+						state[r.URL] = make(map[string]bool)
+					}
+					state[r.URL][r.FullPath] = r.IsDir
+				}
+			}
+		}
+		fh.Close()
+	}
+	fh, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &checkpointWriter{file: fh}, state, visited, nil
+}
+
+func (c *checkpointWriter) write(r checkpointRecord) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b, err := json.Marshal(r)
+	if err != nil {
+		return
+	}
+	c.file.Write(b)
+	c.file.Write([]byte("\n"))
+	c.file.Sync()
+}
+
+func (c *checkpointWriter) close() {
+	if c != nil && c.file != nil {
+		c.file.Close()
+	}
+}
+
+// Reserved DOS device names -- still refuse to be opened by the Windows I/O
+// manager, which is why they routinely drop an ASP.NET stack trace that
+// exposes the physical root path.
+var reservedNames = []string{
+	"CON", "PRN", "AUX", "NUL",
+	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+
 type resultOutput struct {
-	Type      string `json:"type"`
-	FullMatch bool   `json:"fullmatch"`
-	BaseUrl   string `json:"baseurl"`
-	File      string `json:"shortfile"`
-	Ext       string `json:"shortext"`
-	Tilde     string `json:"shorttilde"`
-	Partname  string `json:"partname"`
-	Fullname  string `json:"fullname"`
+	Type       string  `json:"type"`
+	FullMatch  bool    `json:"fullmatch"`
+	BaseUrl    string  `json:"baseurl"`
+	File       string  `json:"shortfile"`
+	Ext        string  `json:"shortext"`
+	Tilde      string  `json:"shorttilde"`
+	Partname   string  `json:"partname"`
+	Fullname   string  `json:"fullname"`
+	Confidence float64 `json:"confidence,omitempty"`
+	Source     string  `json:"source,omitempty"` // "wordlist", "dechecksum", "partial", ""
 }
 
 type statusOutput struct {
@@ -120,8 +312,19 @@ var httpMethods = [...]string{
 	"UNBIND", "UNCHECKOUT", "UNLINK", "UNLOCK", "UPDATE", "UPDATEREDIRECTREF", "VERSION-CONTROL",
 }
 
-// Path suffixes to try
-var pathSuffixes = [...]string{"/", "", "/.aspx", "?aspxerrorpath=/", "/.aspx?aspxerrorpath=/", "/.asmx", "/.vb"}
+// Path suffixes to try. Includes modern IIS/ASP.NET handler bypass variants that
+// tend to survive when the standard `/` and `/.aspx` suffixes are filtered by a
+// WAF or URL-normalisation layer. Extras such as "::$DATA", backslash terminator
+// and a trailing dot/space exploit well-known IIS request-parser quirks.
+var pathSuffixes = [...]string{
+	"/", "",
+	"/.aspx", "?aspxerrorpath=/", "/.aspx?aspxerrorpath=/",
+	"/.asmx", "/.vb",
+	"/.ashx", "/.svc", "/.rem", "/.soap",
+	"/a.aspx", "/a.asmx", "/a.ashx",
+	"/web.config", "/global.asax",
+	"\\", "::$DATA", ".", "%20",
+}
 
 // Embed the default wordlist
 //
@@ -133,25 +336,57 @@ var statusCache map[string]map[int]struct{}
 var distanceCache map[string]map[int]distances
 var checksumRegex *regexp.Regexp
 
+// Package-level singletons wired up in Run().  These are read from fetch(),
+// enumerate(), Scan() etc.; keeping them here avoids threading yet another
+// struct through every call-site.
+var (
+	globalLimiter    *rateLimiter
+	globalCheckpoint *checkpointWriter
+	globalFingerprint atomic.Value // iisFingerprint -- set once per host probe
+)
+
 // Command-line arguments and help
 type arguments struct {
-	Urls              []string `arg:"positional" help:"url to scan (multiple URLs can be specified)" placeholder:"URL"`
-	List              string   `arg:"--list,-l" help:"file containing list of URLs to scan" placeholder:"FILE"`
-	Wordlist          string   `arg:"-w" help:"combined wordlist + rainbow table generated with shortutil" placeholder:"FILE"`
-	Headers           []string `arg:"--header,-H,separate" help:"header to send with each request (use multiple times for multiple headers)"`
-	Concurrency       int      `arg:"-c" help:"number of requests to make at once" default:"20"`
-	Timeout           int      `arg:"-t" help:"per-request timeout in seconds" placeholder:"SECONDS" default:"10"`
-	Output            string   `arg:"-o" help:"output format (human = human readable; json = JSON)" placeholder:"format" default:"human"`
-	Verbosity         int      `arg:"-v" help:"how much noise to make (0 = quiet; 1 = debug; 2 = trace)" default:"0"`
-	FullUrl           bool     `arg:"-F" help:"display the full URL for confirmed files rather than just the filename" default:"false"`
-	NoRecurse         bool     `arg:"-n" help:"don't detect and recurse into subdirectories (disabled when autocomplete is disabled)" default:"false"`
-	Stabilise         bool     `arg:"-s" help:"attempt to get coherent autocomplete results from an unstable server (generates more requests)" default:"false"`
-	Patience          int      `arg:"-p" help:"patience level when determining vulnerability (0 = patient; 1 = very patient)" placeholder:"LEVEL" default:"0"`
-	Characters        string   `arg:"-C" help:"filename characters to enumerate" default:"JFKGOTMYVHSPCANDXLRWEBQUIZ8549176320-_()&'!#$%@^{}~"`
-	Autocomplete      string   `arg:"-a" help:"autocomplete detection mode (auto = autoselect; method = HTTP method magic; status = HTTP status; distance = Levenshtein distance; none = disable)" placeholder:"mode" default:"auto"`
-	IsVuln            bool     `arg:"-V" help:"bail after determining whether the service is vulnerable" default:"false"`
-	Index             bool     `arg:"-i" help:"test ::$INDEX_ALLOCATION and :$i30:$INDEX_ALLOCATION"`
-	BackwardsRecurse  bool     `arg:"--backwards-recurse,-r" help:"perform regressive scanning on parent directories" default:"false"`
+	Urls             []string `arg:"positional" help:"url to scan (multiple URLs can be specified)" placeholder:"URL"`
+	List             string   `arg:"--list,-l" help:"file containing list of URLs to scan" placeholder:"FILE"`
+	Wordlist         string   `arg:"-w" help:"combined wordlist + rainbow table generated with shortutil" placeholder:"FILE"`
+	Headers          []string `arg:"--header,-H,separate" help:"header to send with each request (use multiple times for multiple headers)"`
+	Concurrency      int      `arg:"-c" help:"number of requests to make at once" default:"20"`
+	Timeout          int      `arg:"-t" help:"per-request timeout in seconds" placeholder:"SECONDS" default:"10"`
+	Output           string   `arg:"-o" help:"output format (human = human readable; json = JSON; ndjson = line-delimited JSON)" placeholder:"format" default:"human"`
+	Verbosity        int      `arg:"-v" help:"how much noise to make (0 = quiet; 1 = debug; 2 = trace)" default:"0"`
+	FullUrl          bool     `arg:"-F" help:"display the full URL for confirmed files rather than just the filename" default:"false"`
+	NoRecurse        bool     `arg:"-n" help:"don't detect and recurse into subdirectories (disabled when autocomplete is disabled)" default:"false"`
+	Stabilise        bool     `arg:"-s" help:"attempt to get coherent autocomplete results from an unstable server (generates more requests)" default:"false"`
+	Patience         int      `arg:"-p" help:"patience level when determining vulnerability (0 = patient; 1 = very patient)" placeholder:"LEVEL" default:"0"`
+	Characters       string   `arg:"-C" help:"filename characters to enumerate" default:"JFKGOTMYVHSPCANDXLRWEBQUIZ8549176320-_()&'!#$%@^{}~"`
+	Autocomplete     string   `arg:"-a" help:"autocomplete detection mode (auto = autoselect; method = HTTP method magic; status = HTTP status; distance = Levenshtein distance; hash = SHA-256 + length; none = disable)" placeholder:"mode" default:"auto"`
+	IsVuln           bool     `arg:"-V" help:"bail after determining whether the service is vulnerable" default:"false"`
+	Index            bool     `arg:"-i" help:"test ::$INDEX_ALLOCATION and :$i30:$INDEX_ALLOCATION"`
+	BackwardsRecurse bool     `arg:"--backwards-recurse,-r" help:"perform regressive scanning on parent directories" default:"false"`
+
+	// Network / evasion
+	Proxy     string `arg:"--proxy" help:"upstream HTTP/HTTPS proxy (e.g. http://127.0.0.1:8080 for Burp/ZAP)" placeholder:"URL"`
+	CA        string `arg:"--ca" help:"PEM file with extra CAs to trust" placeholder:"FILE"`
+	Insecure  bool   `arg:"--insecure" help:"skip TLS certificate verification" default:"true"`
+	UserAgent string `arg:"--user-agent,-U" help:"User-Agent header to send" placeholder:"UA"`
+
+	// Rate limiting
+	RPS      float64 `arg:"--rps" help:"hard cap of requests per second across all workers (0 = unlimited)" default:"0"`
+	Adaptive bool    `arg:"--adaptive" help:"auto-throttle on 429/503/Retry-After responses" default:"true"`
+
+	// Enumeration breadth
+	MaxTilde  int  `arg:"--max-tilde" help:"highest tilde collision index to probe (1-9)" placeholder:"N" default:"4"`
+	DeepTilde bool `arg:"--deep-tilde" help:"probe tilde collisions up to ~9 (shortcut for --max-tilde=9)" default:"false"`
+
+	// Verb tampering
+	VerbOverride bool `arg:"--verb-override" help:"retry blocked verbs via X-HTTP-Method-Override header chain" default:"false"`
+
+	// Persistence
+	Checkpoint string `arg:"--checkpoint" help:"append discovered hits / directories to this NDJSON file and resume from it on next run" placeholder:"FILE"`
+
+	// Extra probes
+	Reserved bool `arg:"--reserved" help:"after detection, probe Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)" default:"false"`
 }
 
 func (arguments) Version() string {
@@ -191,15 +426,39 @@ func replaceBinALLOCATION(url string) string {
 
 // fetch requests the given URL and returns an HTTP response object, handling retries gracefully
 func fetch(hc *http.Client, st *httpStats, method string, url string) (*http.Response, error) {
+	return fetchWithOverride(hc, st, method, "", url)
+}
 
-	// Create a request object
-	req, err := http.NewRequest(method, url, nil)
+// fetchWithOverride extends fetch() with optional verb tampering: when
+// `override` is non-empty, the wire-verb becomes `method` and the real verb is
+// transmitted via the X-HTTP-Method-Override header chain.  Several WAFs drop
+// uncommon verbs outright but forward the override header unchanged.
+func fetchWithOverride(hc *http.Client, st *httpStats, method string, override string, url string) (*http.Response, error) {
+
+	// If the caller asked for verb-override, send the wire verb instead and
+	// smuggle the real verb via three headers (different stacks look at
+	// different header names).
+	wireMethod := method
+	if override != "" {
+		wireMethod = override
+	}
+	req, err := http.NewRequest(wireMethod, url, nil)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Fatal("Unable to create request object")
 	}
 
-	// Default user agent
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/1337.00 (KHTML, like Gecko) Chrome/1337.0.0.0 Safari/1337.00")
+	// Default user agent (overridable via --user-agent)
+	ua := args.UserAgent
+	if ua == "" {
+		ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/1337.00 (KHTML, like Gecko) Chrome/1337.0.0.0 Safari/1337.00"
+	}
+	req.Header.Set("User-Agent", ua)
+
+	if override != "" {
+		req.Header.Set("X-HTTP-Method-Override", method)
+		req.Header.Set("X-HTTP-Method", method)
+		req.Header.Set("X-Method-Override", method)
+	}
 
 	// Loop through custom headers
 	for _, h := range args.Headers {
@@ -215,13 +474,18 @@ func fetch(hc *http.Client, st *httpStats, method string, url string) (*http.Res
 		}
 	}
 
+	// Wait for the shared rate limiter (if any) before putting anything on the wire.
+	if globalLimiter != nil {
+		_ = globalLimiter.Wait(context.Background())
+	}
+
 	// Request loop
 	var t int
 	var rerr error
 	var res *http.Response
 	for t = 0; t < 4; t++ {
 		res, rerr = hc.Do(req)
-		if err == nil {
+		if rerr == nil {
 			break
 		}
 		d := time.Duration(t*2) * time.Second
@@ -233,7 +497,23 @@ func fetch(hc *http.Client, st *httpStats, method string, url string) (*http.Res
 		return nil, rerr
 	}
 
-	log.WithFields(log.Fields{"method": method, "url": url, "status": res.StatusCode}).Trace("fetch()")
+	log.WithFields(log.Fields{"method": wireMethod, "override": override, "url": url, "status": res.StatusCode}).Trace("fetch()")
+
+	// Adaptive rate limiting: on 429/503/509 honour Retry-After and nudge the shared limiter.
+	if globalLimiter != nil && (res.StatusCode == 429 || res.StatusCode == 503 || res.StatusCode == 509) {
+		backoff := 250 * time.Millisecond
+		if ra := res.Header.Get("Retry-After"); ra != "" {
+			if secs, err := strconv.Atoi(ra); err == nil {
+				backoff = time.Duration(secs) * time.Second
+			} else if ts, err := http.ParseTime(ra); err == nil {
+				if d := time.Until(ts); d > 0 {
+					backoff = d
+				}
+			}
+		}
+		globalLimiter.Throttle(backoff)
+		log.WithFields(log.Fields{"status": res.StatusCode, "backoff": backoff}).Debug("Rate-limit signal detected, throttling")
+	}
 
 	// Update request stats
 	st.Lock()
@@ -255,6 +535,13 @@ func fetch(hc *http.Client, st *httpStats, method string, url string) (*http.Res
 	res.Body.Close()
 
 	return res, nil
+}
+
+// fetchFromAttack is a thin helper that funnels the ac.method + ac.override
+// combination through fetchWithOverride.  Used by enumerate() and friends so
+// they don't have to know whether verb-tampering is in use.
+func fetchFromAttack(hc *http.Client, st *httpStats, ac *attackConfig, url string) (*http.Response, error) {
+	return fetchWithOverride(hc, st, ac.method, ac.override, url)
 }
 
 // enumerate builds and fetches candidate short name URLs using recursion
@@ -305,18 +592,23 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 			}
 
 			// Check if this looks like a hit
-			res, err := fetch(hc, st, ac.method, url)
+			res, err := fetchFromAttack(hc, st, ac, url)
 			if err == nil && res.StatusCode == mk.statusPos {
 				// Check if the full file part is reached
-				res, err := fetch(hc, st, ac.method, br.url+pathEscape(br.file)+br.tilde+"*"+pathEscape(br.ext)+ac.suffix)
+				res, err := fetchFromAttack(hc, st, ac, br.url+pathEscape(br.file)+br.tilde+"*"+pathEscape(br.ext)+ac.suffix)
 				if err == nil && res.StatusCode == mk.statusPos {
-					res, err := fetch(hc, st, ac.method, br.url+pathEscape(br.file)+br.tilde+pathEscape(br.ext)+ac.suffix)
+					res, err := fetchFromAttack(hc, st, ac, br.url+pathEscape(br.file)+br.tilde+pathEscape(br.ext)+ac.suffix)
 					if err == nil && res.StatusCode != mk.statusNeg {
-						var fnr, method string
+						var fnr, method, source string
+						confidence := 0.5 // partial short-name, no full-name resolution yet
 						if args.Autocomplete != "none" {
 							var fnc []wordlistRecord
+							fromChecksum := make(map[string]bool)
 							if cm := ac.wordlist.isRainbow && checksumRegex.MatchString(br.file); cm {
 								fnc = autodechecksum(ac, br)
+								for _, r := range fnc {
+									fromChecksum[r.filename+r.extension] = true
+								}
 							}
 							fnc = append(fnc, autocomplete(ac, br)...)
 							if args.Autocomplete == "method" {
@@ -340,16 +632,17 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 										log.WithFields(log.Fields{"err": err, "method": method, "url": br.url + candidatePath}).Info("Existence check error")
 										return
 									}
-									if args.Autocomplete == "method" {
+									switch args.Autocomplete {
+									case "method":
 										if res.StatusCode == 405 {
 											fnr = candidatePath
 										}
-									} else if args.Autocomplete == "status" {
+									case "status":
 										ss := getStatuses(c, br, hc, st)
 										if _, e := ss[res.StatusCode]; !e {
 											fnr = candidatePath
 										}
-									} else if args.Autocomplete == "distance" {
+									case "distance":
 										dists := getDistances(c, br, hc, st, ac)
 										if dists[res.StatusCode] == (distances{}) {
 											log.WithFields(log.Fields{"url": br.url + candidatePath, "status": res.StatusCode}).Info("Autocomplete got a status code hit")
@@ -364,11 +657,23 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 												fnr = candidatePath
 											}
 										}
-									} else {
+									case "hash":
+										if hashHit(c, br, hc, st, res) {
+											log.WithFields(log.Fields{"url": br.url + candidatePath, "status": res.StatusCode}).Info("Autocomplete got a hash/length hit")
+											fnr = candidatePath
+										}
+									default:
 										log.Fatal("What are you doing here?")
 									}
 									if fnr != "" {
 										ac.foundFiles[fnr] = struct{}{}
+										if fromChecksum[c.filename+c.extension] {
+											source = "dechecksum"
+											confidence = 0.85
+										} else {
+											source = "wordlist"
+											confidence = 1.0
+										}
 										if !args.NoRecurse {
 											res, err := fetch(hc, st, "HEAD", br.url+fnr)
 											if err != nil {
@@ -393,6 +698,9 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 						if len(fe) >= 4 {
 							fe = fe + "?"
 						}
+						if source == "" && fnr == "" {
+							source = "partial"
+						}
 						if args.Output == "human" {
 							var fp, ff string
 							if fnr != "" {
@@ -414,16 +722,26 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 							printHuman(fmt.Sprintf("%-20s %-28s %s", br.file+br.tilde+br.ext, fp, ff))
 						} else {
 							o := resultOutput{
-								Type:      "result",
-								FullMatch: fnr != "",
-								BaseUrl:   br.url,
-								File:      br.file,
-								Tilde:     br.tilde,
-								Ext:       br.ext,
-								Partname:  fn + fe,
-								Fullname:  fnr,
+								Type:       "result",
+								FullMatch:  fnr != "",
+								BaseUrl:    br.url,
+								File:       br.file,
+								Tilde:      br.tilde,
+								Ext:        br.ext,
+								Partname:   fn + fe,
+								Fullname:   fnr,
+								Confidence: confidence,
+								Source:     source,
 							}
 							printJSON(o)
+						}
+						if globalCheckpoint != nil {
+							globalCheckpoint.write(checkpointRecord{
+								Type:     "hit",
+								URL:      br.url,
+								FullPath: fnr,
+								IsDir:    fnr != "" && func() bool { _, ok := ac.foundDirectories[fnr]; return ok }(),
+							})
 						}
 					} else if err == nil && len(br.ext) > 0 {
 						log.WithFields(log.Fields{"status": res.StatusCode, "statusNeg": mk.statusNeg, "filename": br.file + br.tilde + br.ext + ac.suffix}).
@@ -442,7 +760,7 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 					} else {
 						url = br.url + pathEscape(br.file) + "%3f*" + br.tilde + "*" + pathEscape(br.ext) + ac.suffix
 					}
-					res, err = fetch(hc, st, ac.method, url)
+					res, err = fetchFromAttack(hc, st, ac, url)
 					if err == nil && res.StatusCode != mk.statusNeg {
 						enumerate(sem, wg, hc, st, ac, mk, br)
 					}
@@ -617,11 +935,272 @@ func printHuman(s ...any) {
 	}
 }
 
-// printJSON prints JSON formatted output if enabled
+// printJSON prints JSON formatted output if enabled.  Both "json" and "ndjson"
+// emit one JSON document per line; the ndjson mode additionally flushes stdout
+// after each line so downstream tools (jq, triage scripts) see results live.
 func printJSON(o any) {
-	if args.Output == "json" {
+	if args.Output == "json" || args.Output == "ndjson" {
 		j, _ := json.Marshal(o)
 		fmt.Println(string(j))
+		if args.Output == "ndjson" {
+			if f, ok := os.Stdout.Stat(); ok == nil && f != nil {
+				// Stdout may be a pipe or file; Sync is a best-effort flush.
+				_ = os.Stdout.Sync()
+			}
+		}
+	}
+}
+
+// buildTransport assembles the shared http.Transport based on the CLI flags.
+// Centralised so Run() stays readable and tests can exercise it in isolation.
+func buildTransport(p *arg.Parser) *http.Transport {
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: args.Insecure,
+		Renegotiation:      tls.RenegotiateOnceAsClient,
+	}
+	// Merge in an extra CA bundle (corporate / internal PKI).
+	if args.CA != "" {
+		data, err := os.ReadFile(args.CA)
+		if err != nil {
+			p.Fail(fmt.Sprintf("unable to read --ca file %q: %s", args.CA, err))
+		}
+		pool, _ := x509.SystemCertPool()
+		if pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(data) {
+			p.Fail(fmt.Sprintf("no PEM certificates found in --ca file %q", args.CA))
+		}
+		tlsCfg.RootCAs = pool
+	}
+	proxyFn := http.ProxyFromEnvironment
+	if args.Proxy != "" {
+		u, err := nurl.Parse(args.Proxy)
+		if err != nil {
+			p.Fail(fmt.Sprintf("unable to parse --proxy %q: %s", args.Proxy, err))
+		}
+		switch u.Scheme {
+		case "http", "https":
+			proxyFn = http.ProxyURL(u)
+		case "":
+			u.Scheme = "http"
+			proxyFn = http.ProxyURL(u)
+		default:
+			p.Fail(fmt.Sprintf("unsupported proxy scheme %q (use http:// or https://)", u.Scheme))
+		}
+	}
+	// Pool tuning -- Go defaults to MaxIdleConnsPerHost=2 which thrashes TLS
+	// handshakes when concurrency is high.
+	c := args.Concurrency
+	if c < 1 {
+		c = 1
+	}
+	return &http.Transport{
+		TLSClientConfig:       tlsCfg,
+		Proxy:                 proxyFn,
+		MaxIdleConns:          c * 4,
+		MaxIdleConnsPerHost:   c * 2,
+		MaxConnsPerHost:       0,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DisableCompression:    false,
+		ForceAttemptHTTP2:     true,
+	}
+}
+
+// hashHit implements the `hash` autocomplete mode.  It builds a bucket of
+// SHA-256 fingerprints + content-length bounds from a handful of known-miss
+// responses for the given extension, then checks whether the response we just
+// got falls outside that bucket.  Cheap, O(n), tolerant of randomised CSRF
+// tokens that cause Levenshtein to flap.
+func hashHit(c wordlistRecord, br baseRequest, hc *http.Client, st *httpStats, res *http.Response) bool {
+	hashMutex.Lock()
+	if hashCache == nil {
+		hashCache = make(map[string]map[int]*hashBucket)
+	}
+	per, ok := hashCache[c.extension]
+	if !ok {
+		per = make(map[int]*hashBucket)
+		hashCache[c.extension] = per
+	}
+	hashMutex.Unlock()
+
+	// Populate the bucket lazily: sample a handful of random-miss URLs for this
+	// extension and keep their body SHAs + length band per-status-code.
+	samples := 4
+	if args.Stabilise {
+		samples = 12
+	}
+	hashMutex.Lock()
+	// Is any bucket populated?  If the extension has never been sampled, do so.
+	unsampled := true
+	for _, b := range per {
+		if b.populated {
+			unsampled = false
+			break
+		}
+	}
+	hashMutex.Unlock()
+	if unsampled {
+		for i := 0; i < samples; i++ {
+			p := randPath(rand.Intn(4)+8, 0, alphanum) + c.extension
+			r, err := fetch(hc, st, "GET", br.url+p)
+			if err != nil {
+				continue
+			}
+			body, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
+			sum := sha256.Sum256(body)
+			key := hex.EncodeToString(sum[:])
+			hashMutex.Lock()
+			b, ok := per[r.StatusCode]
+			if !ok {
+				b = &hashBucket{sums: make(map[string]struct{}), minLen: len(body), maxLen: len(body)}
+				per[r.StatusCode] = b
+			}
+			b.sums[key] = struct{}{}
+			if len(body) < b.minLen {
+				b.minLen = len(body)
+			}
+			if len(body) > b.maxLen {
+				b.maxLen = len(body)
+			}
+			b.populated = true
+			hashMutex.Unlock()
+		}
+	}
+
+	// Now compare the response we got against the bucket for its status code.
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+	sum := sha256.Sum256(body)
+	key := hex.EncodeToString(sum[:])
+	hashMutex.Lock()
+	defer hashMutex.Unlock()
+	b, ok := per[res.StatusCode]
+	if !ok || !b.populated {
+		// We have no miss fingerprint for this status code -> treat as a hit.
+		return true
+	}
+	if _, known := b.sums[key]; known {
+		return false
+	}
+	// SHA is new; also require the length to fall outside the miss band by at
+	// least a tolerance of 16 bytes to cut down on false positives from date
+	// stamps / CSRF tokens.
+	const tol = 16
+	if len(body) < b.minLen-tol || len(body) > b.maxLen+tol {
+		return true
+	}
+	return true // new SHA and similar length -> still a hit; length already noisy
+}
+
+// detectFingerprint parses a bag of response headers and returns what we think
+// we're talking to.  Used to reorder probe attempts.
+func detectFingerprint(h http.Header) iisFingerprint {
+	fp := iisFingerprint{}
+	if v := h.Get("Server"); v != "" {
+		fp.server = v
+		ls := strings.ToLower(v)
+		if strings.Contains(ls, "microsoft-iis/") {
+			fp.isIIS = true
+			// Parse "Microsoft-IIS/10.0" -> majorVersion = 10
+			idx := strings.Index(ls, "microsoft-iis/")
+			rest := ls[idx+len("microsoft-iis/"):]
+			if dot := strings.IndexAny(rest, ". \t"); dot > 0 {
+				rest = rest[:dot]
+			}
+			if n, err := strconv.Atoi(rest); err == nil {
+				fp.majorVersion = n
+			}
+		}
+		if strings.Contains(ls, "kestrel") {
+			fp.kestrelFront = true
+		}
+	}
+	if v := h.Get("X-Aspnet-Version"); v != "" {
+		fp.aspNet = true
+	}
+	if v := h.Get("X-Powered-By"); v != "" {
+		lv := strings.ToLower(v)
+		if strings.Contains(lv, "asp.net") {
+			fp.aspNet = true
+		}
+		if strings.Contains(lv, "php") {
+			fp.poweredByPHP = true
+		}
+	}
+	if v := h.Get("X-AspNetMvc-Version"); v != "" {
+		fp.aspNet = true
+	}
+	// Common WAF banners (non-exhaustive, advisory only).
+	for _, k := range []string{"Cf-Ray", "X-Sucuri-Id", "X-Iinfo", "X-Cdn", "X-Amz-Cf-Id", "X-Akamai-Transformed"} {
+		if h.Get(k) != "" {
+			fp.hasWAFMarkers = true
+			break
+		}
+	}
+	return fp
+}
+
+// prioritiseProbeOrder returns reordered copies of (suffixes, methods) placing
+// the combinations most likely to work first.  The rest of the slices keep
+// their relative order so `--patience` can still cover everything.
+func prioritiseProbeOrder(fp iisFingerprint, suffixes []string, methods []string) ([]string, []string) {
+	front := func(slice []string, preferred ...string) []string {
+		out := make([]string, 0, len(slice))
+		seen := make(map[string]bool)
+		for _, p := range preferred {
+			for _, s := range slice {
+				if s == p && !seen[s] {
+					out = append(out, s)
+					seen[s] = true
+				}
+			}
+		}
+		for _, s := range slice {
+			if !seen[s] {
+				out = append(out, s)
+				seen[s] = true
+			}
+		}
+		return out
+	}
+	switch {
+	case fp.majorVersion >= 10 || fp.kestrelFront:
+		// Modern IIS / ASP.NET Core: DEBUG + GET routinely filtered, the
+		// handler-specific suffixes carry best.
+		methods = front(methods, "OPTIONS", "HEAD", "GET", "POST")
+		suffixes = front(suffixes, "/.aspx", "/.asmx", "/.ashx", "/.svc", "/a.aspx", "/", "")
+	case fp.majorVersion == 7 || fp.majorVersion == 8:
+		methods = front(methods, "DEBUG", "OPTIONS", "GET", "HEAD")
+		suffixes = front(suffixes, "/.aspx", "?aspxerrorpath=/", "/", "")
+	case fp.majorVersion == 6:
+		methods = front(methods, "OPTIONS", "GET", "HEAD")
+		suffixes = front(suffixes, "/", "", "/.aspx")
+	}
+	return suffixes, methods
+}
+
+// probeReservedNames hits CON, PRN, AUX, NUL and the COM*/LPT* device names.
+// The Windows I/O manager refuses to open these files, so the ASP.NET pipeline
+// typically serves an unhandled-exception page that leaks the physical path.
+func probeReservedNames(url string, ac *attackConfig, hc *http.Client, st *httpStats) {
+	for _, rn := range reservedNames {
+		target := url + rn
+		if ac.suffix != "" {
+			target += ac.suffix
+		}
+		res, err := fetchFromAttack(hc, st, ac, target)
+		if err != nil || res == nil {
+			continue
+		}
+		if res.StatusCode == 500 || res.StatusCode == 200 {
+			log.WithFields(log.Fields{"url": target, "status": res.StatusCode}).Info("Reserved-name probe produced suspicious response")
+			printHuman(color.New(color.FgYellow, color.Bold).Sprint("[reserved]"), rn, color.HiBlackString(fmt.Sprintf("status=%d", res.StatusCode)))
+			if args.Output == "json" || args.Output == "ndjson" {
+				printJSON(map[string]any{"type": "reserved", "url": target, "status": res.StatusCode})
+			}
+		}
 	}
 }
 
@@ -670,6 +1249,13 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc wordlistConfig, mk m
 		}
 		printHuman(color.New(color.FgWhite, color.Bold).Sprint("Running")+":", srv)
 
+		// Derive an IIS fingerprint from the headers to steer probe ordering.
+		fp := detectFingerprint(res.Header)
+		globalFingerprint.Store(fp)
+		if fp.hasWAFMarkers {
+			log.Info("WAF-style markers detected in banner; verb-override fallback recommended")
+		}
+
 		// Set up autocomplete mode
 		if args.Autocomplete == "auto" {
 			if res, err := fetch(hc, st, "_", url); err == nil && res.StatusCode == 405 {
@@ -691,48 +1277,84 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc wordlistConfig, mk m
 			pc = 4
 			mc = 9
 		}
+		if pc > len(pathSuffixes) {
+			pc = len(pathSuffixes)
+		}
+		if mc > len(httpMethods) {
+			mc = len(httpMethods)
+		}
+		// Pull the fingerprint-prioritised ordering so high-probability
+		// verb/suffix combinations are tried first.
+		probeSuffixes, probeMethods := prioritiseProbeOrder(fp, pathSuffixes[:pc], httpMethods[:mc])
+
+		// Two passes: first direct verbs, second (if --verb-override) via the
+		// X-HTTP-Method-Override header chain.  The override pass keeps the
+		// wire verb stable at POST and smuggles the real verb in headers.
+		overridePasses := []string{""}
+		if args.VerbOverride {
+			overridePasses = append(overridePasses, "POST")
+		}
 	outerEscape:
-		for _, suffix := range pathSuffixes[:pc] {
+		for _, override := range overridePasses {
+			for _, suffix := range probeSuffixes {
 			methodEscape:
-			for _, method := range httpMethods[:mc] {
-				var statusNeg int
-				validMarkers := struct{ status bool }{true}
-				for i := 0; i < 4; i++ {
-					res, err := fetch(hc, st, method, fmt.Sprintf("%s*%d*%s", url, rand.Intn(5)+5, suffix))
-					if err != nil {
-						log.Debug("Method " + method + " failed, skipping")
-						continue methodEscape
+				for _, method := range probeMethods {
+					if override != "" && method == override {
+						continue // overriding POST as POST is pointless
 					}
-					status := res.StatusCode
-					if statusNeg != 0 && status != statusNeg {
-						log.WithFields(log.Fields{"status": status, "statusNeg": statusNeg}).Debug("Method " + method + " unstable, skipping")
-						continue methodEscape
+					var statusNeg int
+					validMarkers := struct{ status bool }{true}
+					for i := 0; i < 4; i++ {
+						res, err := fetchWithOverride(hc, st, method, override, fmt.Sprintf("%s*%d*%s", url, rand.Intn(5)+5, suffix))
+						if err != nil {
+							log.Debug("Method " + method + " failed, skipping")
+							continue methodEscape
+						}
+						status := res.StatusCode
+						if statusNeg != 0 && status != statusNeg {
+							log.WithFields(log.Fields{"status": status, "statusNeg": statusNeg}).Debug("Method " + method + " unstable, skipping")
+							continue methodEscape
+						}
+						statusNeg = status
 					}
-					statusNeg = status
-				}
-				if validMarkers.status {
-					for i := 1; i <= 4; i++ {
-						res, err := fetch(hc, st, method, fmt.Sprintf("%s*~%d*%s", url, i, suffix))
-						if err == nil {
-							statusPos := res.StatusCode
-							if validMarkers.status && statusPos != statusNeg {
-								res, _ := fetch(hc, st, method, fmt.Sprintf("%s*~0*%s", url, suffix))
-								if statusPos == res.StatusCode {
-									log.WithFields(log.Fields{"statusPos": statusPos, "statusNeg": statusNeg}).Debug("Negative response differed, could be rate limiting or server instability")
-								} else {
-									ac.tildes = append(ac.tildes, fmt.Sprintf("~%d", i))
-									mk.statusPos = statusPos
-									mk.statusNeg = statusNeg
+					if validMarkers.status {
+						maxTilde := args.MaxTilde
+						if args.DeepTilde {
+							maxTilde = 9
+						}
+						if maxTilde < 1 {
+							maxTilde = 4
+						}
+						if maxTilde > 9 {
+							maxTilde = 9
+						}
+						for i := 1; i <= maxTilde; i++ {
+							res, err := fetchWithOverride(hc, st, method, override, fmt.Sprintf("%s*~%d*%s", url, i, suffix))
+							if err == nil {
+								statusPos := res.StatusCode
+								if validMarkers.status && statusPos != statusNeg {
+									res, _ := fetchWithOverride(hc, st, method, override, fmt.Sprintf("%s*~0*%s", url, suffix))
+									if statusPos == res.StatusCode {
+										log.WithFields(log.Fields{"statusPos": statusPos, "statusNeg": statusNeg}).Debug("Negative response differed, could be rate limiting or server instability")
+									} else {
+										ac.tildes = append(ac.tildes, fmt.Sprintf("~%d", i))
+										mk.statusPos = statusPos
+										mk.statusNeg = statusNeg
+									}
 								}
 							}
 						}
-					}
-					if len(ac.tildes) > 0 {
-						ac.method = method
-						ac.suffix = suffix
-						break outerEscape
+						if len(ac.tildes) > 0 {
+							ac.method = method
+							ac.suffix = suffix
+							ac.override = override
+							break outerEscape
+						}
 					}
 				}
+			}
+			if args.VerbOverride && override == "" && len(ac.tildes) == 0 {
+				log.Info("Direct verb probe failed; retrying with X-HTTP-Method-Override header chain")
 			}
 		}
 
@@ -765,7 +1387,7 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc wordlistConfig, mk m
 						cm = ac.extChars
 						cu = url + "*" + tilde + "*" + pathEscape(string(char)) + "*" + ac.suffix
 					}
-					res, err := fetch(hc, st, ac.method, cu)
+					res, err := fetchFromAttack(hc, st, &ac, cu)
 					if err == nil && res.StatusCode != mk.statusNeg {
 						cm[tilde] = cm[tilde] + string(char)
 					}
@@ -773,6 +1395,11 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc wordlistConfig, mk m
 			}
 		}
 		log.WithFields(log.Fields{"fileChars": ac.fileChars, "extChars": ac.extChars}).Info("Built character set")
+
+		// Optional reserved-name probe (runs once we've confirmed vulnerability).
+		if args.Reserved {
+			probeReservedNames(url, &ac, hc, st)
+		}
 
 		// Third stage: full enumeration
 		ac.foundFiles = make(map[string]struct{})
@@ -783,6 +1410,11 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc wordlistConfig, mk m
 			enumerate(sem, wg, hc, st, &ac, mk, baseRequest{url: url, file: "", tilde: tilde, ext: ""})
 		}
 		wg.Wait()
+
+		// Record the URL as fully scanned, for resume support.
+		if globalCheckpoint != nil {
+			globalCheckpoint.write(checkpointRecord{Type: "visit", URL: url})
+		}
 
 		// Prepend discovered directories for further processing
 		for dir := range ac.foundDirectories {
@@ -831,12 +1463,25 @@ func Run() {
 	rand.Seed(time.Now().UTC().UnixNano())
 	p := arg.MustParse(&args)
 	args.Autocomplete = strings.ToLower(args.Autocomplete)
-	if args.Autocomplete != "auto" && args.Autocomplete != "method" && args.Autocomplete != "status" && args.Autocomplete != "distance" && args.Autocomplete != "none" {
-		p.Fail("autocomplete must be one of: auto, status, method, none")
+	switch args.Autocomplete {
+	case "auto", "method", "status", "distance", "hash", "none":
+	default:
+		p.Fail("autocomplete must be one of: auto, status, method, distance, hash, none")
 	}
 	args.Output = strings.ToLower(args.Output)
-	if args.Output != "human" && args.Output != "json" {
-		p.Fail("output must be one of: human, json")
+	switch args.Output {
+	case "human", "json", "ndjson":
+	default:
+		p.Fail("output must be one of: human, json, ndjson")
+	}
+	if args.MaxTilde < 1 || args.MaxTilde > 9 {
+		p.Fail("--max-tilde must be between 1 and 9")
+	}
+	if args.DeepTilde && args.MaxTilde < 9 {
+		args.MaxTilde = 9
+	}
+	if args.RPS < 0 {
+		p.Fail("--rps must be >= 0")
 	}
 
 	printHuman(getBanner())
@@ -861,11 +1506,8 @@ func Run() {
 	}
 
 	hc := &http.Client{
-		Timeout: time.Duration(args.Timeout) * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, Renegotiation: tls.RenegotiateOnceAsClient},
-			Proxy:           http.ProxyFromEnvironment,
-		},
+		Timeout:       time.Duration(args.Timeout) * time.Second,
+		Transport:     buildTransport(p),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
@@ -940,12 +1582,43 @@ func Run() {
 		}
 	}
 
+	// Initialise the shared rate limiter (nil if both --rps == 0 and
+	// --adaptive disabled, in which case fetch() skips the wait entirely).
+	if args.RPS > 0 || args.Adaptive {
+		globalLimiter = newRateLimiter(args.RPS, args.Adaptive)
+		if args.RPS > 0 {
+			log.WithFields(log.Fields{"rps": args.RPS, "adaptive": args.Adaptive}).Info("Rate limiter enabled")
+		}
+	}
+
+	// Initialise checkpoint, replaying any prior state.
+	var seededHits map[string]map[string]bool
+	seededVisits := map[string]struct{}{}
+	if args.Checkpoint != "" {
+		cp, state, visits, err := newCheckpointWriter(args.Checkpoint)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err, "path": args.Checkpoint}).Fatal("Unable to open checkpoint file")
+		}
+		globalCheckpoint = cp
+		seededHits = state
+		seededVisits = visits
+		defer cp.close()
+		if len(visits) > 0 || len(state) > 0 {
+			log.WithFields(log.Fields{"visits": len(visits), "hosts_with_hits": len(state)}).Info("Checkpoint replayed")
+		}
+	}
+	_ = seededHits // reserved for future cross-host seeding; per-host seeding currently handled via visited map
+
 	if args.Index && len(args.Urls) > 0 {
 		testIndexAllocations(args.Urls, hc, st, wc, mk)
 		return
 	}
 
-	// Create a global visited map so that paths are not re-scanned
+	// Create a global visited map so that paths are not re-scanned.  Seed
+	// from the checkpoint so a resumed run skips URLs already completed.
 	visited := make(map[string]struct{})
+	for u := range seededVisits {
+		visited[u] = struct{}{}
+	}
 	Scan(args.Urls, hc, st, wc, mk, visited)
 }
