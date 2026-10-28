@@ -2,29 +2,29 @@
 
 An IIS short filename enumeration and canonicalization research tool. **v1.81.0**
 adds guarded cross-stack reads through directory `$INDEX_ALLOCATION` namespaces
-after confirming an Express route-auth bypass on Windows. v0.80.1 added
+after confirming an Express route-auth bypass on Windows. v1.80.1 added
 high-value detection for IIS WebDAV `properties.dav` databases recovered through
-guarded cross-stack 8.3 retrieval. v0.80.0 added a validated
+guarded cross-stack 8.3 retrieval. v1.80.0 added a validated
 IIS/System.Web research bundle for request-body limits, multipart
-cache keys and FastCGI header namespaces. v0.79.0 turns conventional
+cache keys and FastCGI header namespaces. v1.79.0 turns conventional
 request-filtered ASP.NET/NuGet manifests into quarantined stem
-evidence for actively verified, readable sibling names. v0.78.0 extended the
+evidence for actively verified, readable sibling names. v1.78.0 extended the
 cross-stack retrieval chain to known NTFS named streams after confirming
 that Node `serve-static` 2.2.1 serves both an 8.3 alias and its named ADS, and that
 ASP.NET Core 10.0.12 default StaticFileMiddleware serves MIME-mapped aliases, from
-the same Windows NTFS root where IIS blocks them. v0.76.0 added a fully enumerable
+the same Windows NTFS root where IIS blocks them. v1.76.0 added a fully enumerable
 header-signature oracle for reverse proxies/WAFs that flatten the IIS status
-differential while preserving categorical origin headers. v0.45.0 makes
+differential while preserving categorical origin headers. v1.45.0 makes
 method-magic self-validating per extension: a `405` "this exists" only counts when it differs
 from a same-extension baseline, so 405-for-everything servers stop producing recovered names
 that don't exist — while requestFiltering-hidden files are still recovered wherever the `405`
-signal is genuinely real. v0.44 added the extension-dimension catch-all guard. v0.43 killed
+signal is genuinely real. v1.44 added the extension-dimension catch-all guard. v1.43 killed
 three false-positive sources against catch-all / soft-404 front ends (a `#` in an 8.3 alias
 fetching the directory root, unguarded `--mutate-ext` hits, and serve-everything enumeration
-explosions). v0.42 made `--maxtime` default to `0` (no limit) so a recursive `-r` scan is
+explosions). v1.42 made `--maxtime` default to `0` (no limit) so a recursive `-r` scan is
 never silently truncated.
 
-## What's new in 0.81
+## What's new in 1.81.0
 
 - **Express route-auth bypass on Windows.** With authentication mounted
   on `/private` before `express.static(root)`, the canonical JSON/DLL requests
@@ -43,7 +43,7 @@ never silently truncated.
 - `serve-index` 1.9.1 additionally turned the namespace into a full-LFN listing
   and child-read primitive behind a canonical directory deny.
 
-## What's new in 0.80.1
+## What's new in 1.80.1
 
 - **WebDAV property-database retrieval.** A controlled shared-NTFS lab showed
   that IIS's `webdav_simple_prop` provider creates a Hidden+System
@@ -60,7 +60,7 @@ never silently truncated.
   requires WebDAV custom properties and another Windows static tier sharing the
   NTFS content root.
 
-## What's new in 0.80
+## What's new in 1.80
 
 - Documents how chunked request bodies bypass IIS
   `maxAllowedContentLength`, including a same-payload WebDAV write at the default
@@ -79,7 +79,7 @@ never silently truncated.
   intentionally does not send state-changing uploads, oversized bodies, or
   application-significant authentication headers.
 
-## What's new in 0.79
+## What's new in 1.79
 
 - **ASP.NET/NuGet manifest profile.** `--auto`/`--full` now recognize canonical
   project-root names that IIS normally request-filters: `AjaxControlToolkit.config`,
@@ -103,7 +103,7 @@ never silently truncated.
   publicly served backup sibling into a data-read proof; it is not a bypass that
   makes default IIS serve protected `.config` files.
 
-## What's new in 0.78
+## What's new in 1.78
 
 - **Guarded cross-stack retrieval is now part of `--auto`/`--full`.** Every confirmed 8.3 alias is offered
   to the guarded retrieval chain. Single-stack IIS is skipped; a mixed-stack
@@ -117,7 +117,7 @@ never silently truncated.
   operator-supplied stream list and now parses without requiring a redundant
   `--retrieve` flag.
 
-## What's new in 0.77
+## What's new in 1.77
 
 - **Node/Express cross-stack retrieval is now lab-confirmed.** On Windows ARM64,
   `serve-static` 2.2.1 served `CONFID~1.TXT` with the exact bytes of
@@ -146,7 +146,7 @@ never silently truncated.
   source canaries. Microsoft documents this toggle as a security risk; Shortscan
   reports what the selected tier actually serves rather than assuming it is set.
 
-## What's new in 0.76
+## What's new in 1.76
 
 - **Header-signature ShortName enumeration.** Under `--auto`/`--full`, after all
   status oracles fail, Shortscan now calibrates categorical response metadata such as
@@ -157,7 +157,7 @@ never silently truncated.
 - Unlike the existing PROPFIND body fallback, the new oracle feeds character discovery
   and recursive ShortName enumeration. In the IIS 10 lab, a reverse proxy forced every
   response to `404` while preserving origin headers: the ordinary scan returned
-  `Vulnerable: No`; v0.76 recovered all three ground-truth aliases (`BODY~1.ASP`,
+  `Vulnerable: No`; v1.76 recovered all three ground-truth aliases (`BODY~1.ASP`,
   `ECHO~1.ASP`, `VERYLO~1.TXT`) with no extra aliases.
 - Fingerprint and structured status output now run after every fallback. This removes the
   contradictory `8.3 oracle: no` followed by `Vulnerable: Yes` that alternate oracles could
@@ -165,13 +165,13 @@ never silently truncated.
   `probesuffix`, so automation can distinguish `header-signature` from the classic status
   oracle.
 
-## What's new in 0.45
+## What's new in 1.45
 
 - **Per-extension method-magic validation (best of both worlds).** Method-magic reads a `405`
   from the invalid-method probe as "this resource exists". But some servers/WAFs — and ASP.NET
   extensionless routing — answer `405` to the invalid method for *anything*, so wordlist
   guesses got "confirmed" even though a real GET returns `404` (recovered names that don't
-  exist). Rather than the blunt v0.44 whole-oracle downgrade (which lost hidden-file detection
+  exist). Rather than the blunt v1.44 whole-oracle downgrade (which lost hidden-file detection
   everywhere it triggered), each `405` is now checked against a **same-extension baseline**
   probed the same way. Because the baseline is per-extension, a requestFiltering-hidden file
   (GET `404`, `_` `405`) is still recovered in the dimensions where `405` is real (e.g. a
@@ -179,15 +179,15 @@ never silently truncated.
   only in the exact dimension where the host is 405-for-everything. A non-distinctive `405`
   falls back to the GET-status differential, which still catches served / auth-walled files.
 
-## What's new in 0.44
+## What's new in 1.44
 
-- **Extension-dimension catch-all guard.** The 0.43 guard covered the file part, but a server
+- **Extension-dimension catch-all guard.** The 1.43 guard covered the file part, but a server
   can enumerate real name prefixes yet still answer the wildcard for *any extension character*,
   exploding into hundreds of never-resolving `ASPNET~1.A / .AA / .AAA …` variants (`1/466
   resolved`). Shortscan now drops extension exploration when >90% of the character set matches
   as valid extension characters, keeping the real extensionless names.
 
-## What's new in 0.43
+## What's new in 1.43
 
 Three false-positive fixes, all aimed at catch-all / soft-404 / serve-everything front ends:
 
@@ -207,15 +207,15 @@ Three false-positive fixes, all aimed at catch-all / soft-404 / serve-everything
   never-resolving garbage short names (`0/133 resolved`). Shortscan now stops with a clear
   warning instead (and saves the wasted requests).
 
-## What's new in 0.42
+## What's new in 1.42
 
-- **`--maxtime` now defaults to `0` (no limit).** In 0.41 it defaulted to 300s and — because
+- **`--maxtime` now defaults to `0` (no limit).** In 1.41 it defaulted to 300s and — because
   a single top-level URL's budget covers its *entire* `-r` recursion — a deep scan could hit
   the limit partway through, drop the still-queued sibling directories, and print a clean
   `Finished!` as if it had completed. It now runs to completion by default, and when a limit
   *is* set and trips, it prints how many queued paths were skipped instead of hiding it.
 
-## What's new in 0.41
+## What's new in 1.41
 
 - **`--parallel N`** scans several URLs at once (default 10) in **every** output mode. Each
   URL is an independent scan — its own `visited` map and its own recovery knowledge
@@ -271,11 +271,11 @@ Three false-positive fixes, all aimed at catch-all / soft-404 / serve-everything
   relax/recurse pair is now `-X`/`--relax` and `-R`/`--backwards-recurse` (`-r` is forward
   `--recurse`). A new ASCII-art banner carries the version.
 
-## What's new in 0.29.2
+## What's new in 1.29.2
 
 - Fixed `-i`/`--auto` source-probe URL joining after `::$INDEX_ALLOCATION`: `/bin` and a recovered child now retain their segment boundary (`/bin/file`) instead of becoming `/binfile`. A focused regression covers `DefaultWsdlHelpGenerator.compiled` and nested `App_Data` paths.
 
-## What's new in 0.29.1
+## What's new in 1.29.1
 
 - `--exact-short` accepts ordinary `PREFIX~N.EXT` aliases and custom 8.3 candidates such as `SRC47.TXT`, `DATA47`, and `RCFG~A.TXT`. Custom candidates use the direct profile because the late profiles specifically materialize `~N` between the native and managed parser stages.
 - `--exact-short-method auto` tries `HEAD`, `OPTIONS`, and `TRACE` in that order for each applicable profile. Every method remains bodyless and must produce a stable candidate/control differential in two full rounds. In the IIS 10 default lab, `HEAD` was `404/404`, while `OPTIONS` confirmed the exact automatic alias as `404/200`; `TRACE` remains a final read-only fallback.
@@ -297,7 +297,7 @@ shortscan --bitmap-profile \
 
 The `$BITMAP` profile requires a configuration-dependent WebDAV capability oracle: stable `405` controls without `COPY`, and `COPY` appearing only for a resolving resource. If that baseline is absent, the result is inconclusive rather than guessed from status.
 
-## What's new in 0.27
+## What's new in 1.27
 
 - Protected-folder index scans no longer try to verify reconstructed LFNs inside the ADS namespace. Shortscan builds a canonical cookieless split-join URL, sends `HEAD`, rejects catch-all 200 responses with two random same-extension siblings, repeats the candidate, and performs a single GET only after confirmation. This works in explicit `-i` and the reserved-folder sweep in `--auto`/`--full`.
 - The behavior was validated with matched IIS 10 cells: both enumerate `QUARTE~1.JSO` and `DATABA~1.TXT` inside `App_Data`; only the cell with aggressive cookieless removal restored serves the reconstructed JSON/TXT. The control enumerates the aliases but recovers no LFN or content.
@@ -320,7 +320,7 @@ shortscan https://example.test/ \
   --probe-oracle translate -w names.txt
 ```
 
-## What's new in 0.26
+## What's new in 1.26
 
 - `--probe-oracle allow-copy` pins the probe to `PROPFIND` with `Depth: 0` and `Cache-Control: no-cache`. `--probe-method`, `--probe-status` and `--probe-body-limit` do not determine a match in this mode.
 - A hit must be `405` with `COPY`; two random siblings of the same extension and suffix must be stable `405` responses without `COPY`. After removing `COPY`, every other method in `Allow` must agree. The candidate and controls are then repeated before the result is promoted.
@@ -328,14 +328,14 @@ shortscan https://example.test/ \
 - Confirmed in a controlled IIS 10 lab where anonymous PROPFIND was enabled and the WebDAV handler was removed while `WebDAVModule` remained active. Removing both the handler and module at the application root killed the signal; setting `allowAnonymousPropfind=false` at the site level also removed `COPY` from existing and missing paths. This is a configuration-dependent discovery primitive, not a claim that every IIS/WebDAV site is affected.
 - No mutating WebDAV method is issued. The tool only inspects the `Allow` header returned to `PROPFIND`.
 
-## What's new in 0.19
+## What's new in 1.19
 
 - `--webdav` turns a common misconfiguration into full-name recovery. The 8.3 tilde oracle is information-bounded to six prefix + three extension characters, and a patched IIS refuses to serve the alias, so `SECRET~1.ASP` rarely resolves on its own. But when the target announces WebDAV — the module is installed on many legacy/collab/file-serving IIS hosts — an anonymous `PROPFIND Depth:1` on an *allowed* directory returns the full long names of its immediate children as `displayname`/`href`.
 - It flags the **hidden-name disclosure**: `PROPFIND` on the parent lists children that requestFiltering hides from a direct `GET` — `web.config`, `/bin`, `App_Data`, `*.bak`/`*.old`/`*.config` — so their names leak even where directory browsing is off. Each recovered name is joined back to the confirmed 8.3 alias it resolves (`AdministratorNotes.txt ← ADMINI~1.TXT`).
 - Honest bounds: `Depth:1` is one directory level (`Depth:infinity` is 403 by default), a `PROPFIND` aimed straight at a hidden segment is itself 404, and the *content* of a blocked-extension file stays blocked — this recovers **names**, not blocked content. The technique is WebDAV listing (prior art); the value is first-class integration with the 8.3 scan. Live-confirmed on patched Windows 11 / IIS 10 + WebDAV.
-- **0.19.1** fixes the confirmation-status column: in method-magic autocomplete the probe verb is invalid, so IIS answers `405` for *every* file that exists — that is the existence oracle, not the resource's reachability. The recovered name now shows its real `GET` status, so an openly served file reads `200` (and a protected one its true `401`/`403`/`404`), not a misleading `405`. This also makes the column meaningful for telling a servable name from a name that is merely known-to-exist-but-blocked.
+- **1.19.1** fixes the confirmation-status column: in method-magic autocomplete the probe verb is invalid, so IIS answers `405` for *every* file that exists — that is the existence oracle, not the resource's reachability. The recovered name now shows its real `GET` status, so an openly served file reads `200` (and a protected one its true `401`/`403`/`404`), not a misleading `405`. This also makes the column meaningful for telling a servable name from a name that is merely known-to-exist-but-blocked.
 
-## What's new in 0.17
+## What's new in 1.17
 
 - `--bypass-probe` is a single read-only detector for the whole cookieless "managed-only" native access-control bypass family. Point it at a managed endpoint (`.aspx`/`.asmx`/`.ashx`) to probe it directly, or at a directory to scan first and then probe every endpoint the scan resolves. It splices the token before every path segment (nested apps only blind at one insertion point), and confirms a bypass only when a managed-only form executes the real resource, resolves it distinctly from a non-existent sibling, the canonical form stays blocked, and the invalid lowercase-tag control never executes.
 - The differential is classified by baseline status: `401` → native authentication (resource runs anonymously); `403` → ipSecurity (403.503) / require-SSL (403.4) / app-pool isolation (403.18); `404` → requestFiltering. Managed `<authorization>` runs after `RewritePath` and is explicitly not bypassed.
@@ -343,16 +343,16 @@ shortscan https://example.test/ \
 - Confirmation status is shown next to every recovered long name (`200`/`302`/`401`/`403`), so on a real target you can see which endpoints are open, redirecting, or auth-walled. A consistent status palette (2xx green, 3xx cyan, 401/403 yellow, other 4xx/5xx red) is used across the tool, and a `500` crash is never painted as a clean bypass.
 - Reliability fixes: the status-based existence oracle escalates its "missing file" baseline with extra probes before trusting an apparent hit (a small 2-probe baseline had produced a live false positive); `auto` autocomplete mode is re-resolved per host so a multi-host `--list` scan no longer inherits the first host's decision; and method-magic autocomplete falls back to a status differential for auth-gated `301/302/401/403` endpoints it would otherwise drop.
 
-## What's new in 0.14
+## What's new in 1.14
 
 - Reference-derived names now calculate both Windows checksum variants, so a public name such as `PRIMAX5145` can join a hashed alias such as `PR45F4~1` without a rainbow table. Enumerated `.BR`/`.GZ` groups also derive precompressed companions such as `service-worker.js.br`; every derived path still has to pass the configured HTTP oracle.
-- Repeatable `--exact-short SHORTNAME` is a standalone exact-alias probe. Since v0.29.1 it accepts every supported 8.3 basename, including custom forms without `~N`. It skips the wildcard vulnerability pre-flight, enumeration, and wordlist configuration entirely, so it remains useful when a WAF blocks `*`, `?`, or a literal `~` and never pays the cost of a large rainbow table.
+- Repeatable `--exact-short SHORTNAME` is a standalone exact-alias probe. Since v1.29.1 it accepts every supported 8.3 basename, including custom forms without `~N`. It skips the wildcard vulnerability pre-flight, enumeration, and wordlist configuration entirely, so it remains useful when a WAF blocks `*`, `?`, or a literal `~` and never pays the cost of a large rainbow table.
 - Each round sends the exact candidate and two same-length negative aliases. `--exact-short-method auto` uses bodyless `HEAD`, `OPTIONS`, then `TRACE`, stopping at the first stable differential. A result is emitted only when the candidate is stable across `--exact-short-repeats`, both controls are stable and agree, and the candidate's status/header signature differs from them. Throttling and server-error responses are rejected rather than promoted.
 - `--exact-short-profile late-encoded` places one cookieless modifier at the application path boundary, splits the candidate immediately before `~N`, fully percent-encodes the managed modifier, and encodes the tilde once as `%7E`. The exact 8.3 alias is therefore absent from the wire representation and is assembled only after the two parser stages. `late` honors the selected session/tilde encodings; `direct` supplies a baseline; `auto` tries `late-encoded`, `late`, then `direct`.
 - This mode reports an `alias-differential`, not a recovered long filename. It does not establish which LFN owns the observed path and does not claim a patched-build bypass. Structured output separates `aliasverified`, `lfnassociationverified`, `ordinalverified`, and custom-SFN candidate labels. Two paired controls reduce false positives, but application-specific routing still needs analyst review.
 - `--tilde-encoding percent` adds the single-decode `%7E` representation; `all` now rotates through it as well.
 
-## What's new in 0.13
+## What's new in 1.13
 
 - Wordlists are only parsed after the first vulnerable target is confirmed. Parsing runs in parallel with character-set discovery, and `-V` or a non-vulnerable target never loads the rainbow table.
 - Plain/rainbow duplicates are merged case-insensitively, with the checksum-bearing rainbow record taking precedence.
@@ -392,7 +392,7 @@ shortscan https://example.test/ \
 - `-o ndjson` and `-o csv` output formats
 - Graceful `SIGINT` handling (Ctrl-C flushes partial state)
 - Unit test suite + GitHub Actions CI
-- `-r` now means `--recurse` (forward recursion, opt-in as of v0.16.0); `-R`/`--backwards-recurse` ascends into parent directories. The rate limiter is `--rate` (long form only)
+- `-r` now means `--recurse` (forward recursion, opt-in as of v1.16.0); `-R`/`--backwards-recurse` ascends into parent directories. The rate limiter is `--rate` (long form only)
 
 ## Functionality
 
@@ -734,7 +734,7 @@ shortutil checksum index.html
 Run `shortutil <command> --help` for a definitive list of options for each command.
 
 ```
-Shortutil v0.5 · a short filename utility by bitquark & TheZakMan
+Shortutil v0.6 · a short filename utility by bitquark & TheZakMan
 Usage: shortutil <command> [<args>]
 
 Options:
