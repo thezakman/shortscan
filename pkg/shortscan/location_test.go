@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// vulnerableLocationClient models the H34 signature: the DIRECT request is denied
+// vulnerableLocationClient models the native access control signature: the DIRECT request is denied
 // (403 — an ipSecurity/authorization guard on the <location>), canonical cookieless
 // forms stay denied (stripped before the location match), while managed-only forms
 // execute the guarded resource (200) yet 404 on a non-existent sibling.
@@ -56,8 +56,8 @@ func TestLocationProbeFlagsBypass(t *testing.T) {
 	}
 }
 
-// A 401 denied baseline is the H35 / AuthDrop signature (native authentication on a
-// <location>): the probe must still flag [candidate/high] and name it H35 (not H34),
+// A 401 denied baseline signals native authentication on a <location>.
+// The probe must flag [candidate/high] and name the authentication bypass,
 // noting the resource runs anonymously.
 func TestLocationProbeNamesAuthBypassOn401(t *testing.T) {
 	previousArgs, previousWriter := args, outputWriter
@@ -95,8 +95,8 @@ func TestLocationProbeNamesAuthBypassOn401(t *testing.T) {
 	if !strings.Contains(s, "[candidate/high]") {
 		t.Fatalf("expected a high-confidence candidate on a 401 baseline; output=%q", s)
 	}
-	if !strings.Contains(s, "(H35)") {
-		t.Fatalf("expected the 401 auth-bypass to be named H35; output=%q", s)
+	if !strings.Contains(s, "native authentication bypass") {
+		t.Fatalf("expected the 401 auth-bypass to be named native authentication; output=%q", s)
 	}
 	if !strings.Contains(s, "ANONYMOUSLY") {
 		t.Fatalf("expected the note to say the resource runs anonymously; output=%q", s)

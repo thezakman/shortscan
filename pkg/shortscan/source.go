@@ -572,8 +572,8 @@ type sourceToken struct {
 // sourceTokens are the cookieless modifier spellings the split-join payload is
 // built with. On an aggressive-removal build the two inserted tokens must be
 // byte-identical (RemoveAppPathModifier strips the exact modifier set from the
-// first token, so a mismatched second token never collapses — see research/09),
-// which buildSourcePayload guarantees by reusing one tok for both halves. The
+// first token, so a mismatched second token never collapses. The
+// buildSourcePayload function reuses one token for both halves. The
 // extra spellings therefore buy WAF/signature EVASION, not new server coverage:
 // a front end that blocks the public DuoDrop "(S(X))" pattern (non-empty value,
 // S tag) is slipped by the empty-value / alternate-tag / compound forms, each

@@ -29,7 +29,7 @@ type bitmapProfileOutput struct {
 	Classification          string `json:"classification"`
 	HistoricalHighWatermark bool   `json:"historicalhighwatermark"`
 	Note                    string `json:"note,omitempty"`
-	// BaselineUnavailable is true only when the base H40 PROPFIND/Allow capability
+	// BaselineUnavailable is true only when the base PROPFIND/Allow capability
 	// oracle itself never worked (index.Available == false in probeBitmapProfileTarget)
 	// — as opposed to OracleAvailable being false merely because the ::$BITMAP/
 	// :$I30:$BITMAP follow-up probes were flaky on an otherwise-confirmed directory.
@@ -86,7 +86,7 @@ func bitmapSignaturesStable(values []allowCopySignature) (allowCopySignature, bo
 	return first, true
 }
 
-// probeBitmapCapability uses the same H40 capability bit as allow-copy recovery,
+// probeBitmapCapability uses the same WebDAV capability bit as allow-copy recovery,
 // but classifies both presence and absence. Two same-shape controls and two full
 // rounds are required; a raw 405 or a lone COPY token is never promoted.
 func probeBitmapCapability(hc *http.Client, st *httpStats, baseURL, candidatePath, suffix string) (bitmapCapabilityObservation, error) {
@@ -141,7 +141,7 @@ func probeBitmapCapability(hc *http.Client, st *httpStats, baseURL, candidatePat
 
 func classifyBitmapProfile(index, bitmap, named bitmapCapabilityObservation) (classification, note string, highWatermark bool) {
 	if !index.Available {
-		return "inconclusive", "the H40 PROPFIND/Allow capability oracle was unavailable or unstable", false
+		return "inconclusive", "the PROPFIND/Allow capability oracle was unavailable or unstable", false
 	}
 	if !index.Present {
 		return "not-a-confirmed-directory", "::$INDEX_ALLOCATION did not resolve under the calibrated oracle", false
@@ -266,7 +266,7 @@ func autoBitmapTargets(currentURL string, chain []string, foundDirectories map[s
 }
 
 // runAutoBitmapProfiles is deliberately gated and bounded. A host that does
-// not expose the H40 capability baseline pays for one failed target only; a
+// not expose the WebDAV capability baseline pays for one failed target only; a
 // working host profiles at most six directories in --auto and 24 in --full.
 // Exact custom-SFN guessing is not enabled here because an ordinary 8.3 LFN is
 // indistinguishable from custom alternate metadata without an external pair.
@@ -290,13 +290,13 @@ func runAutoBitmapProfiles(hc *http.Client, st *httpStats, ac *attackConfig, cur
 			continue
 		}
 		if profile.BaselineUnavailable {
-			// Only the base H40 capability oracle failing poisons the whole origin.
+			// Only failure of the base WebDAV capability oracle excludes the origin.
 			// A confirmed directory (index.Present) whose ::$BITMAP/:$I30:$BITMAP
 			// follow-ups merely flaked stays OracleAvailable=false too, but must not
 			// blacklist sibling directories on the same origin that could still
 			// resolve cleanly — see the BaselineUnavailable doc comment.
 			unavailableOrigins[origin] = struct{}{}
-			log.WithField("origin", origin).Debug("H40 capability baseline unavailable; skipping auto $BITMAP profiles for origin")
+			log.WithField("origin", origin).Debug("WebDAV capability baseline unavailable; skipping auto $BITMAP profiles for origin")
 			continue
 		}
 		if !profile.IndexAllocation {

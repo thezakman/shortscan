@@ -14,19 +14,19 @@ import (
 )
 
 // bypass.go implements --bypass-probe: a SINGLE read-only detector for the whole
-// cookieless "managed-only" native access-control bypass family. H24/H34/H35 are
-// not separate bugs — they are one primitive (a managed-only cookieless token
-// survives the patched native filter and is only removed by System.Web after the
-// RewritePath) hitting different NATIVE, <location>-scoped controls that all run
-// BEFORE the rewrite. Confirmed in lab (research docs 23/24/26, doc 25 §3-5):
+// cookieless "managed-only" native access-control bypass family. App-pool
+// isolation, filtering and authentication share one primitive: a cookieless token
+// survives the patched native filter and is only removed by System.Web after
+// RewritePath. It reaches different native <location>-scoped controls that run
+// BEFORE the rewrite. The baseline status identifies the native control:
 //
-//	baseline 403.18  app-pool isolation           (needs a child application)   -> H24
-//	baseline 403.503 ipSecurity IP allow/denylist                               -> H34
-//	baseline 404.x   requestFiltering                                           -> H34
-//	baseline 401.2   authentication (anon off / basic / windows) -> runs ANON   -> H35
-//	baseline 403.4   require-SSL (sslFlags=Ssl) over plain HTTP                  -> H34-family
+//	403.18  app-pool isolation (needs a child application)
+//	403.503 ipSecurity IP allow/denylist
+//	404.x   requestFiltering
+//	401.2   authentication (anon off / basic / windows) -> runs ANON
+//	403.4   require-SSL (sslFlags=Ssl) over plain HTTP
 //
-// The same primitive also reaches STATIC files (H37): when the app runs managed
+// The same primitive also reaches STATIC files: when the app runs managed
 // modules for every request (runAllManagedModulesForAllRequests=true, the MVC
 // template default, or a no-preCondition module), the managed cookieless module
 // removes the token for a static request too, so the StaticFile handler serves the
@@ -41,12 +41,11 @@ import (
 //
 // A standalone leading token (the above) preserves the raw path segment a
 // <location> control keys on, so it CANNOT desync a control scoped to a specific
-// FILE or DIRECTORY (research/52, H58) — only fusing the token INSIDE that exact
+// FILE or DIRECTORY — only fusing the token INSIDE that exact
 // segment does (dir-split for a directory, ext-split for a filename's extension).
 // When the leading-token sweep finds nothing and the baseline is denied,
 // probeSegmentSplitBypass sweeps that geometry as a fallback before giving up —
-// closing a real false-negative this probe had for 12 days after H58 first
-// proved it (research/findings/H74-file-scoped-location-bypass-bare-extsplit).
+// closing a false negative for file- and directory-scoped native controls.
 
 // --- cookieless token vocabulary (formerly apppool.go) --------------------
 //
@@ -56,7 +55,7 @@ import (
 // parenthesis so the native validator leaves them intact, yet System.Web adopts and
 // removes them after one decode. "control-invalid" is a lowercase tag no stage
 // should accept, guarding against "any parenthesised segment is ignored" false
-// positives. The apppool* names are historical (the H24 app-pool probe came first);
+// positives. The apppool* names are historical (the app-pool probe came first);
 // they now serve the whole unified family.
 type apppoolVariant struct {
 	label  string
@@ -148,7 +147,7 @@ type bypassResult struct {
 // isStaticResource reports whether the resource path names a static file — an
 // extension that is NOT mapped to a managed ASP.NET handler. It matters because a
 // managed-only token that returns 200 on such a resource has DISCLOSED THE FILE'S
-// CONTENT (H37), not merely executed code: the managed cookieless module removed the
+// CONTENT, not merely executed code: the managed cookieless module removed the
 // token for a static request (which happens when runAllManagedModulesForAllRequests
 // is true — the ASP.NET MVC template default — or when a managed module with no
 // preCondition forces the managed pipeline for all requests), then the StaticFile
@@ -185,7 +184,7 @@ func executedCleanly(status int) bool {
 // servedContent reports a real 2xx: this probe never fetches a response body, so a
 // 2xx status is the only evidence that bytes were actually returned rather than a
 // redirect notice. Deliberately narrower than executedCleanly (which also accepts
-// 3xx) — used only to gate the H37 "content disclosed" relabel, where a bare 301/302
+// 3xx) — used only to gate the static-file disclosure "content disclosed" relabel, where a bare 301/302
 // carries no representation of the target resource and must never be reported as
 // disclosure.
 func servedContent(status int) bool {
@@ -339,24 +338,24 @@ func runBypassProbeMode(urls []string, hc *http.Client, st *httpStats) {
 	}
 }
 
-// splitBypassHit records one confirmed H58 segment-split bypass: the token was
+// splitBypassHit records one confirmed segment-split bypass: the token was
 // fused INSIDE the segment a native <location> control keys on (dir-split for
 // a directory, ext-split for the final filename's extension), desyncing the
 // raw-URL match that control runs at BeginRequest — before the managed
 // cookieless collapse reforms the real path. Distinct primitive from the
 // standalone leading-token sweep in probeBypassURL: a leading token stays its
 // own path segment, so it CANNOT desync a control keyed on a segment further
-// down the path — that is exactly what H58 (research/52) found and what
-// probeSegmentSplitBypass below exists to detect. Confirmed in lab against
+// down the path. The probeSegmentSplitBypass function detects that condition.
+// The behavior was confirmed in lab against
 // native authentication, ipSecurity and require-SSL, all FILE- or
 // DIRECTORY-scoped, none needing fileExtensions or any other control
-// involved (research/52; research/findings/H74-file-scoped-location-bypass-bare-extsplit).
+// involved.
 type splitBypassHit struct {
 	via, token, url string
 	real, fake      int
 }
 
-// probeSegmentSplitBypass sweeps the H58 geometry: fuse a cookieless token
+// probeSegmentSplitBypass sweeps the segment-split geometry: fuse a cookieless token
 // INSIDE each directory segment (dir-split) and inside the final filename's
 // extension (ext-split), and return the first split whose REAL resource
 // resolves while a same-shape random sibling split the same way does not —
@@ -432,21 +431,21 @@ func probeSegmentSplitBypass(hc *http.Client, st *httpStats, base string, segs [
 	return nil
 }
 
-// splitBypassClassify names the likely native control for a confirmed H58
+// splitBypassClassify names the likely native control for a confirmed
 // segment-split hit, mirroring bypassClassify's baseline-status switch.
 func splitBypassClassify(baseline int) (confidence, variant, note string) {
 	switch baseline {
 	case http.StatusUnauthorized: // 401.2
-		return "high", "native authentication bypass via segment-split (H58)",
+		return "high", "native authentication bypass via segment-split",
 			"baseline 401 (authentication) — the leading-token form alone stayed blocked (it preserves the raw segment the <location> keys on), but fusing the token INSIDE that segment desyncs the native BeginRequest match. NOTE: managed <authorization> is NOT bypassed (runs after the collapse)"
 	case http.StatusForbidden: // 403.503 / 403.4 / 403.18 / 403
-		return "high", "native access-control bypass via segment-split (H58)",
+		return "high", "native access-control bypass via segment-split",
 			"baseline 403 — likely ipSecurity (403.503) or require-SSL (403.4); the leading-token form alone stayed blocked, but fusing the token INSIDE the location-matched segment desyncs the raw-URL match — no fileExtensions or other control involved"
 	case http.StatusNotFound: // 404.x
-		return "high", "native requestFiltering bypass via segment-split (H58)",
+		return "high", "native requestFiltering bypass via segment-split",
 			"baseline 404 — requestFiltering (confirm the 404.x substatus); the leading-token form alone stayed blocked, but fusing the token INSIDE the filtered segment desyncs the match"
 	default:
-		return "medium", "native access-control bypass via segment-split (H58)",
+		return "medium", "native access-control bypass via segment-split",
 			"the leading-token form alone stayed blocked; fusing the token INSIDE the location-matched segment desyncs the raw-URL match"
 	}
 }
@@ -547,7 +546,7 @@ func probeBypassURL(raw string, hc *http.Client, st *httpStats) {
 	}
 	candidate := len(winners) > 0
 
-	// H58: a standalone leading token stays its OWN path segment, so it cannot
+	// segment-split: a standalone leading token stays its OWN path segment, so it cannot
 	// desync a native <location> control keyed on a segment further down the
 	// path (a directory, or a filename's extension) — only fusing the token
 	// INSIDE that exact segment does. Only worth sweeping when the leading-token
@@ -582,11 +581,11 @@ func probeBypassURL(raw string, hc *http.Client, st *httpStats) {
 			workingURL = primary.url
 		}
 		if splitAttempted {
-			note += " (segment-split/H58 geometry against the location-matched segment also tried, no bypass)"
+			note += " (segment-split geometry against the location-matched segment also tried, no bypass)"
 		}
 	}
 
-	// H37: if the guarded resource is a static file and a bypass form served it
+	// static-file disclosure: if the guarded resource is a static file and a bypass form served it
 	// cleanly (2xx), the bypass DISCLOSED THE FILE'S CONTENT — a strictly higher
 	// impact than running a known managed endpoint. Relabel so the operator sees it.
 	if candidate && isStaticResource(path) {
@@ -602,7 +601,7 @@ func probeBypassURL(raw string, hc *http.Client, st *httpStats) {
 			}
 		}
 		if served {
-			variant = "static-file content disclosure (H37) — " + variant
+			variant = "static-file content disclosure — " + variant
 			note = "STATIC FILE: the bypass SERVED the file's bytes (content disclosed), not just ran code. " + note
 		}
 	}
@@ -659,16 +658,16 @@ func bypassClassify(baseline int, candidate, canonicalBlocked, canonicalExecuted
 	if candidate {
 		switch baseline {
 		case http.StatusUnauthorized: // 401.2
-			return "high", "native authentication bypass (H35)",
+			return "high", "native authentication bypass",
 				"baseline 401 (authentication) — the managed-only form runs the resource ANONYMOUSLY; canonical stays denied, invalid-tag control does not execute. NOTE: managed <authorization> is NOT bypassed (runs after RewritePath)"
 		case http.StatusForbidden: // 403.503 / 403.4 / 403.18 / 403
-			return "high", "native access-control bypass (H34-family)",
-				"baseline 403 — likely ipSecurity (403.503), require-SSL (403.4) or app-pool (403.18); confirm the substatus with FREB. If it crosses an app/pool boundary, confirm the executing pool/identity (H24)"
+			return "high", "native access-control bypass",
+				"baseline 403 — likely ipSecurity (403.503), require-SSL (403.4) or app-pool (403.18); confirm the substatus with FREB. If it crosses an app/pool boundary, confirm the executing pool/identity"
 		case http.StatusNotFound: // 404.x
-			return "high", "native requestFiltering bypass (H34)",
+			return "high", "native requestFiltering bypass",
 				"baseline 404 — requestFiltering (confirm the 404.x substatus); canonical stays denied and the invalid-tag control does not execute"
 		default: // baseline executes + canonical blocked -> app-pool crossing
-			return "medium", "app-pool isolation bypass (H24)",
+			return "medium", "app-pool isolation bypass",
 				"baseline executes but the canonical cross-app form is blocked (verify IIS 403.18) while a managed-only form runs the resource — confirm the crossed pool/identity with a page that echoes APP_POOL_ID"
 		}
 	}

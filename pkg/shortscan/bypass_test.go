@@ -8,7 +8,7 @@ import (
 )
 
 func TestIsStaticResource(t *testing.T) {
-	// Static files (content disclosure if a managed-only token serves them, H37).
+	// Static files can disclose content if a managed-only token serves them.
 	for _, p := range []string{
 		"/secure/backup_secret.txt", "/area/appsettings.json", "/x/data.xml",
 		"/x/backup.zip", "/a/b/report.pdf", "/img/logo.PNG", "/s/style.css",
@@ -83,9 +83,9 @@ func TestBypassProbeAllFormsCrashIsNegative(t *testing.T) {
 	}
 }
 
-// vulnerableDirScopedSplitClient models the H58 signature (research/52): a native
+// vulnerableDirScopedSplitClient models a segment-split bypass of a native
 // ipSecurity control scoped to a DIRECTORY (`<location path="secure">`) blocks the
-// direct request AND every leading-token form (H34) — the standalone token never
+// direct request AND every leading-token form — the standalone token never
 // touches the "secure" segment, so the raw path still matches the location — but
 // splitting "secure" itself (dir-split, token fused INSIDE the segment) desyncs the
 // match and serves the real resource, 404ing a same-shape random sibling.
@@ -108,8 +108,8 @@ func vulnerableDirScopedSplitClient() *http.Client {
 
 // TestBypassProbeSegmentSplitCatchesDirectoryScopedLocation is the regression test
 // for the session's real finding: --bypass-probe only swept the standalone
-// leading-token geometry (H34/H35), which a FILE- or DIRECTORY-scoped native
-// <location> control survives (research/52, H58) — a real false negative. The probe
+// leading-token geometry, which a FILE- or DIRECTORY-scoped native
+// <location> control survives — a real false negative. The probe
 // must fall through to the segment-split geometry and still report a candidate.
 func TestBypassProbeSegmentSplitCatchesDirectoryScopedLocation(t *testing.T) {
 	previousArgs, previousWriter := args, outputWriter
@@ -121,13 +121,13 @@ func TestBypassProbeSegmentSplitCatchesDirectoryScopedLocation(t *testing.T) {
 	probeBypassURL("http://example.test/secure/read.aspx", vulnerableDirScopedSplitClient(), &httpStats{})
 	s := out.String()
 	if !strings.Contains(s, "no bypass") {
-		t.Fatalf("expected the leading-token sweep to report no bypass at every position (H58 precondition); output=%q", s)
+		t.Fatalf("expected the leading-token sweep to report no bypass at every position (segment-split precondition); output=%q", s)
 	}
 	if !strings.Contains(s, "[candidate/high]") {
 		t.Fatalf("expected the segment-split fallback to flag a high-confidence candidate; output=%q", s)
 	}
-	if !strings.Contains(s, "(H58)") {
-		t.Fatalf("expected the finding to be attributed to H58 (segment-split); output=%q", s)
+	if !strings.Contains(s, "native access-control bypass via segment-split") {
+		t.Fatalf("expected the finding to identify a segment-split bypass; output=%q", s)
 	}
 	if !strings.Contains(s, "segment-split:dir-split") {
 		t.Fatalf("expected the bypass form to name dir-split; output=%q", s)
@@ -156,7 +156,7 @@ func TestBypassProbeSegmentSplitStaysNegativeWhenNothingDesyncs(t *testing.T) {
 	if !strings.Contains(s, "[negative]") {
 		t.Fatalf("expected negative when no geometry (leading-token or segment-split) desyncs the control; output=%q", s)
 	}
-	if !strings.Contains(s, "segment-split/H58 geometry") {
+	if !strings.Contains(s, "segment-split geometry") {
 		t.Fatalf("expected the negative note to record that segment-split was also tried; output=%q", s)
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/thezakman/shortscan/pkg/maths"
 )
 
-// Tier B multi-oracle fallback (research/53): a body-content differential on
+// Tier B multi-oracle fallback: a body-content differential on
 // PROPFIND, tried as the last resort under --auto/--full when every
 // status-based oracle has failed — the primary method×suffix matrix AND
 // calibrateAltStatusOracle's WebDAV-verb escalation. Unlike those, this is
@@ -31,7 +31,7 @@ import (
 // candidate verification) and only counts a tilde probe as a hit when it
 // clears that floor by a real margin, on two independent probes.
 //
-// Real-world hit rate is unconfirmed: research/53 could not reproduce a
+// Real-world hit rate is unconfirmed: the controlled lab did not reproduce a
 // genuine PROPFIND body-existence signal on the one lab available (IIS
 // answered PROPFIND 404 uniformly, dominated by path-echo noise, not
 // existence) — Tier B needs a WebDAV-enabled target with real 207-multistatus

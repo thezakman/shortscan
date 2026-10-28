@@ -217,7 +217,7 @@ func TestInspectDisclosure(t *testing.T) {
 		"web.config / connection string": []byte("<configuration><connectionString>..."),
 		"PEM key/certificate":            []byte("-----BEGIN RSA PRIVATE KEY-----"),
 		"IIS WebDAV property store (properties.dav)": append([]byte{0xff, 0xfe}, func() []byte {
-			s := "\r\n[/CustomerContractDocument.txt]\r\n0063006C006100730073=1H126%2DSECRET!0!0\r\n"
+			s := "\r\n[/CustomerContractDocument.txt]\r\n0063006C006100730073=1SYNTHETIC%2DSECRET!0!0\r\n"
 			out := make([]byte, 0, len(s)*2)
 			for _, r := range s {
 				out = append(out, byte(r), byte(r>>8))
@@ -558,7 +558,7 @@ func TestProbeManifestSiblingReadRequiresNegativeControlAndSavesBytes(t *testing
 		paths = append(paths, req.URL.Path)
 		mu.Unlock()
 		if req.URL.Path == "/AppSettings-backup.TXT" {
-			return responseFor(req, http.StatusOK, "password=H104-SYNTHETIC-SECRET"), nil
+			return responseFor(req, http.StatusOK, "password=SYNTHETIC-SECRET"), nil
 		}
 		return responseFor(req, http.StatusNotFound, "missing"), nil
 	})}

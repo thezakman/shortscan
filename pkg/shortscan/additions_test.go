@@ -368,7 +368,7 @@ func TestProbeSensitiveAliasReadLeak(t *testing.T) {
 	}
 }
 
-// TestProbeSensitiveAliasReadIndexAllocationLeak locks in H129: a Windows
+// TestProbeSensitiveAliasReadIndexAllocationLeak locks in index-allocation disclosure: a Windows
 // Express tier can protect /private at the router, yet serve the same child from
 // /private::$INDEX_ALLOCATION/ through the later static middleware.
 func TestProbeSensitiveAliasReadIndexAllocationLeak(t *testing.T) {
@@ -388,7 +388,7 @@ func TestProbeSensitiveAliasReadIndexAllocationLeak(t *testing.T) {
 			return responseFor(req, http.StatusUnauthorized, "Authentication required"), nil
 		case strings.Contains(p, "PRIVATE::$INDEX_ALLOCATION/WEB.CONFIG"):
 			return responseFor(req, http.StatusOK,
-				`<configuration><connectionStrings><add connectionString="Password=H129"/></connectionStrings></configuration>`), nil
+				`<configuration><connectionStrings><add connectionString="Password=synthetic-test-value"/></connectionStrings></configuration>`), nil
 		default:
 			return responseFor(req, http.StatusNotFound, "missing"), nil
 		}

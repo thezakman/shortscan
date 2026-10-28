@@ -12,7 +12,7 @@ import (
 // resource rather than blanket-answering.
 const realResource = "/read.aspx"
 
-// vulnerableApppoolClient models the H24 signature: native-recognised cookieless
+// vulnerableApppoolClient models the app-pool isolation signature: native-recognised cookieless
 // forms are blocked (403.18) across the app boundary, while managed-only forms
 // execute the real resource (200) but 404 on a non-existent sibling.
 func vulnerableApppoolClient() *http.Client {
@@ -61,8 +61,8 @@ func TestApppoolProbeFlagsBypass(t *testing.T) {
 	if !strings.Contains(s, "[candidate/medium]") {
 		t.Fatalf("expected a medium-confidence app-pool candidate; output=%q", s)
 	}
-	if !strings.Contains(s, "app-pool isolation bypass (H24)") {
-		t.Fatalf("output missing the H24 classification: %q", s)
+	if !strings.Contains(s, "app-pool isolation bypass") {
+		t.Fatalf("output missing the app-pool isolation classification: %q", s)
 	}
 	if !strings.Contains(s, "managed-only:tag") {
 		t.Fatalf("output missing the managed-only bypass form: %q", s)

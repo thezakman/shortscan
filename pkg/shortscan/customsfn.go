@@ -8,7 +8,7 @@ import (
 	"github.com/fatih/color"
 )
 
-// customsfn.go implements --custom-sfn: the H47 custom short-name READ probe.
+// customsfn.go implements --custom-sfn: the custom short-name custom short-name READ probe.
 //
 // iiscore!CheckIfShortFileName — the guard that answers 404.0 canonical-mismatch
 // when a request uses an 8.3 alias — only fires when the path contains a tilde

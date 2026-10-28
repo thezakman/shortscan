@@ -26,7 +26,7 @@ never silently truncated.
 
 ## What's new in 0.81
 
-- **H129 — Express route-auth bypass on Windows.** With authentication mounted
+- **Express route-auth bypass on Windows.** With authentication mounted
   on `/private` before `express.static(root)`, the canonical JSON/DLL requests
   returned 401 while both `private::$INDEX_ALLOCATION/<file>` and
   `private:$I30:$INDEX_ALLOCATION/<file>` returned the exact protected bytes.
@@ -41,8 +41,7 @@ never silently truncated.
   read requires a random same-extension child control to fail and reports only
   proven bytes as `[INDEX-READ/CRITICAL]`.
 - `serve-index` 1.9.1 additionally turned the namespace into a full-LFN listing
-  and child-read primitive behind a canonical directory deny. See the H129
-  finding for the exact matrices and limitations.
+  and child-read primitive behind a canonical directory deny.
 
 ## What's new in 0.80.1
 
@@ -63,17 +62,17 @@ never silently truncated.
 
 ## What's new in 0.80
 
-- Documents H107: chunked request bodies bypass IIS
+- Documents how chunked request bodies bypass IIS
   `maxAllowedContentLength`, including a same-payload WebDAV write at the default
   30,000,000-byte limit.
-- Documents H115: ASP.NET `maxRequestLength` can be bypassed inside IIS's
+- Documents how ASP.NET `maxRequestLength` can be bypassed inside IIS's
   49,152-byte pre-read window when the request is chunked.
-- Documents H117: `VaryByParam="*"` omits `Request.Files` from the System.Web
+- Documents how `VaryByParam="*"` omits `Request.Files` from the System.Web
   OutputCache key whenever a multipart POST also has a normal form field.
-- Documents H120: `CustomErrorModule` File mode reads a custom error body
+- Documents how `CustomErrorModule` File mode reads a custom error body
   outside the file's URL-scoped authentication policy; direct anonymous access
   is 401 while an anonymous 404 returns the protected bytes.
-- Also retains H118 as a regression/composition test for IIS `scanHeaders` and
+- Also retains a regression/composition test for IIS `scanHeaders` and
   FastCGI header namespaces. The behavior is real, but its root class has public
   IIS/CGI prior art and is not counted as a new vulnerability.
 - These are laboratory research probes, not automatic reconnaissance. `--auto`
@@ -106,7 +105,7 @@ never silently truncated.
 
 ## What's new in 0.78
 
-- **H39 is now part of `--auto`/`--full`.** Every confirmed 8.3 alias is offered
+- **Guarded cross-stack retrieval is now part of `--auto`/`--full`.** Every confirmed 8.3 alias is offered
   to the guarded retrieval chain. Single-stack IIS is skipped; a mixed-stack
   origin or an explicit `--retrieve-base` is tested with a random same-shape
   negative alias before any bytes are reported or saved.
@@ -280,15 +279,15 @@ Three false-positive fixes, all aimed at catch-all / soft-404 / serve-everything
 
 - `--exact-short` accepts ordinary `PREFIX~N.EXT` aliases and custom 8.3 candidates such as `SRC47.TXT`, `DATA47`, and `RCFG~A.TXT`. Custom candidates use the direct profile because the late profiles specifically materialize `~N` between the native and managed parser stages.
 - `--exact-short-method auto` tries `HEAD`, `OPTIONS`, and `TRACE` in that order for each applicable profile. Every method remains bodyless and must produce a stable candidate/control differential in two full rounds. In the IIS 10 default lab, `HEAD` was `404/404`, while `OPTIONS` confirmed the exact automatic alias as `404/200`; `TRACE` remains a final read-only fallback.
-- Structured output separates `aliasverified` from `lfnassociationverified`. A remote differential can verify that an exact alias-like path is special, but it cannot by itself prove which LFN owns that alias. `customsfncandidate` and `canonicalguardbypasscandidate` are therefore candidate labels, not claims of H47 exploitation.
+- Structured output separates `aliasverified` from `lfnassociationverified`. A remote differential can verify that an exact alias-like path is special, but it cannot by itself prove which LFN owns that alias. `customsfncandidate` and `canonicalguardbypasscandidate` are therefore candidate labels, not claims of a successful content read.
 - `--bitmap-profile DIRECTORY_URL` uses paired `PROPFIND Depth:0` capability controls for `::$INDEX_ALLOCATION`, `::$BITMAP`, and `:$I30:$BITMAP`. It reports `resident-directory-index`, `materialized-directory-index`, or `inconclusive`; it never sends `COPY` or another mutating method.
-- `--auto` now invokes that profile only after a calibrated H40 baseline is available. It is capped at six directories per scan block (`--full`: 24), caches an unavailable origin, skips ADS paths and prioritizes materialized-index directories when `--recurse` is active. It does not guess custom SFNs: H47 candidates remain explicit because a normal 8.3 LFN cannot be distinguished from alternate metadata without outside evidence.
+- `--auto` now invokes that profile only after a calibrated WebDAV capability baseline is available. It is capped at six directories per scan block (`--full`: 24), caches an unavailable origin, skips ADS paths and prioritizes materialized-index directories when `--recurse` is active. It does not guess custom SFNs: custom short-name candidates remain explicit because a normal 8.3 LFN cannot be distinguished from alternate metadata without outside evidence.
 - `$BITMAP` is a historical high-water signal, not a current child counter. In the controlled NTFS lab, a directory expanded to 512 children retained `$BITMAP` and a 262,144-byte `$INDEX_ALLOCATION` after 511 children were deleted and after the directory was renamed. Deleting and recreating the directory reset it to a resident index. Long generated names materialized at 3 children in that fixture, while compact 8.3 names needed 8, proving that the threshold depends on index-entry shape.
 
 Examples:
 
 ```text
-shortscan http://127.0.0.1/h47default/ \
+shortscan http://127.0.0.1/sample/ \
   --exact-short RCFG~A.TXT --exact-short SRC47.TXT \
   --exact-short-method auto --exact-short-profile auto
 
@@ -296,7 +295,7 @@ shortscan --bitmap-profile \
   http://127.0.0.1/application/LargeDirectory/
 ```
 
-The `$BITMAP` profile requires the configuration-dependent H40 WebDAV capability oracle: stable `405` controls without `COPY`, and `COPY` appearing only for a resolving resource. If that baseline is absent, the result is inconclusive rather than guessed from status.
+The `$BITMAP` profile requires a configuration-dependent WebDAV capability oracle: stable `405` controls without `COPY`, and `COPY` appearing only for a resolving resource. If that baseline is absent, the result is inconclusive rather than guessed from status.
 
 ## What's new in 0.27
 
@@ -339,8 +338,8 @@ shortscan https://example.test/ \
 ## What's new in 0.17
 
 - `--bypass-probe` is a single read-only detector for the whole cookieless "managed-only" native access-control bypass family. Point it at a managed endpoint (`.aspx`/`.asmx`/`.ashx`) to probe it directly, or at a directory to scan first and then probe every endpoint the scan resolves. It splices the token before every path segment (nested apps only blind at one insertion point), and confirms a bypass only when a managed-only form executes the real resource, resolves it distinctly from a non-existent sibling, the canonical form stays blocked, and the invalid lowercase-tag control never executes.
-- The differential is classified by baseline status: `401` → native authentication (H35, resource runs anonymously); `403` → ipSecurity (403.503) / require-SSL (403.4) / app-pool isolation (403.18) (H34-family/H24); `404` → requestFiltering (H34). Managed `<authorization>` runs after `RewritePath` and is explicitly not bypassed.
-- `--apppool-probe` and `--location-probe` are retained as compatibility aliases of `--bypass-probe`; H24 app-pool isolation and H34/H35 `<location>` control bypasses are now individual classifications of the one probe.
+- The differential is classified by baseline status: `401` → native authentication (resource runs anonymously); `403` → ipSecurity (403.503) / require-SSL (403.4) / app-pool isolation (403.18); `404` → requestFiltering. Managed `<authorization>` runs after `RewritePath` and is explicitly not bypassed.
+- `--apppool-probe` and `--location-probe` are retained as compatibility aliases of `--bypass-probe`; app-pool isolation and `<location>` control bypasses are now individual classifications of the one probe.
 - Confirmation status is shown next to every recovered long name (`200`/`302`/`401`/`403`), so on a real target you can see which endpoints are open, redirecting, or auth-walled. A consistent status palette (2xx green, 3xx cyan, 401/403 yellow, other 4xx/5xx red) is used across the tool, and a `500` crash is never painted as a clean bypass.
 - Reliability fixes: the status-based existence oracle escalates its "missing file" baseline with extra probes before trusting an apparent hit (a small 2-probe baseline had produced a live false positive); `auto` autocomplete mode is re-resolved per host so a multi-host `--list` scan no longer inherits the first host's decision; and method-magic autocomplete falls back to a status differential for auth-gated `301/302/401/403` endpoints it would otherwise drop.
 
@@ -694,7 +693,7 @@ bypass.go       unified --bypass-probe cookieless native-control bypass
 source.go       --retrieve direct 8.3 disclosure and --source-probe chain
 indexchain.go   -i/--full reserved ASP.NET folder ::$INDEX_ALLOCATION sweep
 fingerprint.go  conservative IIS/ASP.NET/WebDAV signal classification
-customsfn.go    --custom-sfn H47 custom short-name content read
+customsfn.go    --custom-sfn custom short-name content read
 peinspect.go    inline PE/.NET metadata summary for disclosed assemblies
 webdav.go       --webdav PROPFIND Depth:1 full-name lift and hidden-name flag
 progress.go     live stderr status bar + per-host --parallel output buffering

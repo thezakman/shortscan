@@ -1206,7 +1206,7 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc *wordlistConfig, mk 
 			url = "https://" + url
 		}
 		// --custom-sfn combined with a scan (--auto/--full/-r): probe each supplied
-		// H47 alias for a content read at every scanned directory.
+		// custom short-name alias for a content read at every scanned directory.
 		if len(args.CustomSFN) > 0 {
 			progress.setPhase("custom-sfn")
 			for _, alias := range args.CustomSFN {
