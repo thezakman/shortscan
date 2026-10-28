@@ -1,11 +1,13 @@
 package shortscan
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestTotalFailureRecordsStats guards against a bug where every fetch*/executeRequest
@@ -65,5 +67,63 @@ func TestRetryStopsWhenRequestBodyCannotRewind(t *testing.T) {
 	}
 	if calls != 1 || retries != 0 || stats.requests != 1 || stats.retries != 0 {
 		t.Fatalf("calls=%d retries=%d requests=%d stats.retries=%d", calls, retries, stats.requests, stats.retries)
+	}
+}
+
+func TestRetryBackoffIsBounded(t *testing.T) {
+	for _, tc := range []struct {
+		attempt    int
+		base, want time.Duration
+	}{
+		{0, time.Second, time.Second}, {3, time.Second, 8 * time.Second},
+		{63, time.Second, 30 * time.Second}, {1000000, time.Millisecond, 30 * time.Second},
+		{0, time.Hour, 30 * time.Second},
+	} {
+		if got := retryBackoff(tc.attempt, tc.base); got != tc.want {
+			t.Fatalf("backoff=%s want %s", got, tc.want)
+		}
+	}
+}
+
+func TestCanceledRequestDoesNotRetry(t *testing.T) {
+	previousArgs := args
+	defer func() { args = previousArgs }()
+	args = arguments{Retries: 3, RetryDelay: 60000}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://example.test/", nil)
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		cancel()
+		return nil, context.Canceled
+	})}
+	var stats httpStats
+	_, _, retries, err := sendWithRetry(client, &stats, req)
+	if !errors.Is(err, context.Canceled) || calls != 1 || retries != 0 {
+		t.Fatalf("calls=%d retries=%d err=%v", calls, retries, err)
+	}
+}
+
+func TestCancellationInterruptsRetryWait(t *testing.T) {
+	previousArgs := args
+	defer func() { args = previousArgs }()
+	args = arguments{Retries: 3, RetryDelay: 30000}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://example.test/", nil)
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		time.AfterFunc(20*time.Millisecond, cancel)
+		return nil, errors.New("temporary failure")
+	})}
+	start := time.Now()
+	_, _, retries, err := sendWithRetry(client, &httpStats{}, req)
+	if !errors.Is(err, context.Canceled) || retries != 0 || calls != 1 {
+		t.Fatalf("calls=%d retries=%d err=%v", calls, retries, err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("cancellation did not interrupt retry wait")
 	}
 }

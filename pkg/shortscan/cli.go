@@ -40,7 +40,7 @@ type arguments struct {
 	RandomAgent       bool     `arg:"--random-agent" help:"rotate User-Agent from a built-in pool per request" default:"false"`
 	Cookies           []string `arg:"--cookie,-b,separate" help:"cookie name=value (repeatable)" placeholder:"NAME=VAL"`
 	Retries           int      `arg:"--retries" help:"number of retries on transport error" default:"3"`
-	RetryDelay        int      `arg:"--retry-delay" help:"base retry delay in milliseconds (exponential backoff)" placeholder:"MS" default:"500"`
+	RetryDelay        int      `arg:"--retry-delay" help:"base retry delay in milliseconds (exponential backoff, capped at 30s)" placeholder:"MS" default:"500"`
 	HTTP2             bool     `arg:"--http2" help:"force HTTP/2 negotiation" default:"false"`
 	TildeEncoding     string   `arg:"--tilde-encoding" help:"how to encode the ~ character (default|percent|unicode|double|iis-unicode|all)" placeholder:"MODE" default:"default"`
 	SessionStyle      string   `arg:"--session-style" help:"cookieless session token style for $INDEX_ALLOCATION (d|x|f|a|empty|rand)" placeholder:"S" default:"d"`

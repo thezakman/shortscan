@@ -120,6 +120,24 @@ func executeRequest(hc *http.Client, st *httpStats, method, url string) (*http.R
 	return sendWithRetry(hc, st, req)
 }
 
+// retryBackoff saturates before multiplication to avoid duration overflow.
+func retryBackoff(attempt int, base time.Duration) time.Duration {
+	const ceiling = 30 * time.Second
+	if base <= 0 {
+		base = 500 * time.Millisecond
+	}
+	for i := 0; i < attempt && base < ceiling; i++ {
+		if base >= ceiling/2 {
+			return ceiling
+		}
+		base *= 2
+	}
+	if base > ceiling {
+		return ceiling
+	}
+	return base
+}
+
 // sendWithRetry runs the transport-retry loop on an already-built request, so
 // callers that need per-request headers or a body (the WebDAV PROPFIND lift sets
 // Depth and sends a prop document) can prepare the request first.
@@ -136,9 +154,11 @@ func sendWithRetry(hc *http.Client, st *httpStats, req *http.Request) (*http.Req
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
-	baseDelay := time.Duration(args.RetryDelay) * time.Millisecond
-	if baseDelay <= 0 {
-		baseDelay = 500 * time.Millisecond
+	baseDelay := 500 * time.Millisecond
+	if args.RetryDelay >= 30000 {
+		baseDelay = 30 * time.Second
+	} else if args.RetryDelay > 0 {
+		baseDelay = time.Duration(args.RetryDelay) * time.Millisecond
 	}
 	var res *http.Response
 	var requestErr error
@@ -166,10 +186,22 @@ func sendWithRetry(hc *http.Client, st *httpStats, req *http.Request) (*http.Req
 			log.WithFields(log.Fields{"method": req.Method, "url": req.URL.String(), "status": res.StatusCode}).Trace("fetch()")
 			return req, res, attempt, nil
 		}
+		if req.Context().Err() != nil {
+			break
+		}
 		if attempt+1 < maxAttempts {
-			d := time.Duration(1<<attempt) * baseDelay
+			d := retryBackoff(attempt, baseDelay)
 			log.WithFields(log.Fields{"err": requestErr}).Trace(fmt.Sprintf("fetch() failed, retrying in %s", d))
-			time.Sleep(d)
+			timer := time.NewTimer(d)
+			select {
+			case <-timer.C:
+			case <-req.Context().Done():
+				timer.Stop()
+				requestErr = req.Context().Err()
+			}
+			if req.Context().Err() != nil {
+				break
+			}
 		}
 	}
 	retries := attemptCount - 1

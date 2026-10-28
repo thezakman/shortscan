@@ -1,6 +1,6 @@
 # 🌀 Shortscan
 
-**Shortscan v1.81.0** is an IIS short filename enumeration and recovery tool,
+**Shortscan v1.81.1** is an IIS short filename enumeration and recovery tool,
 rewritten and expanded by **TheZakMan** from the original project by **bitquark**.
 
 The rewrite reorganizes the original large script into a modular Go codebase.
@@ -29,6 +29,14 @@ The improvements cover both how the scanner works and how its results are presen
   repeatable scans and integration with other tools.
 
 The release notes below describe the individual techniques and their limitations.
+
+## What's new in 1.81.1
+
+- Updated Go dependencies and raised the build requirement to Go 1.26.10.
+- Retry delays are capped at 30 seconds and stop when the request is canceled.
+- URL files and stdin share consistent parsing; read failures reject partial lists.
+- Empty target lists produce an error instead of a successful scan summary.
+- Response-distance comparison skips shared prefixes and suffixes to reduce work.
 
 ## What's new in 1.81.0
 
@@ -410,7 +418,7 @@ In addition to standard discovery methods Shortscan also uses a unique checksum 
 
 ### Quick install
 
-Using a recent version of [go](https://golang.org/):
+Using [Go](https://golang.org/) 1.26.10 or newer:
 
 ```
 go install github.com/thezakman/shortscan/cmd/shortscan@latest

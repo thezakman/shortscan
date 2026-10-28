@@ -1,18 +1,18 @@
 module github.com/thezakman/shortscan
 
-go 1.18
+go 1.26.10
 
 require (
-	github.com/alexflint/go-arg v1.4.3
-	github.com/fatih/color v1.15.0
-	github.com/mattn/go-isatty v0.0.17
-	github.com/sirupsen/logrus v1.9.3
-	golang.org/x/net v0.0.0-20200202094626-16171245cfb2
+	github.com/alexflint/go-arg v1.6.1
+	github.com/fatih/color v1.19.0
+	github.com/mattn/go-isatty v0.0.24
+	github.com/sirupsen/logrus v1.10.2
+	golang.org/x/net v0.62.0
 )
 
 require (
-	github.com/alexflint/go-scalar v1.1.0 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
-	golang.org/x/sys v0.6.0 // indirect
-	golang.org/x/text v0.3.0 // indirect
+	github.com/alexflint/go-scalar v1.2.0 // indirect
+	github.com/mattn/go-colorable v0.1.16 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )
