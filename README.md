@@ -1,6 +1,6 @@
 # 🌀 Shortscan
 
-An IIS short filename enumeration and canonicalization research tool. **v0.81.0**
+An IIS short filename enumeration and canonicalization research tool. **v1.81.0**
 adds guarded cross-stack reads through directory `$INDEX_ALLOCATION` namespaces
 after confirming an Express route-auth bypass on Windows. v0.80.1 added
 high-value detection for IIS WebDAV `properties.dav` databases recovered through
