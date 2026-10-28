@@ -1,6 +1,6 @@
 # 🌀 Shortscan
 
-**Shortscan v1.81.4** is an IIS short filename enumeration and recovery tool,
+**Shortscan v1.81.5** is an IIS short filename enumeration and recovery tool,
 rewritten and expanded by **TheZakMan** from the original project by **bitquark**.
 
 The rewrite reorganizes the original large script into a modular Go codebase.
@@ -29,6 +29,14 @@ The improvements cover both how the scanner works and how its results are presen
   repeatable scans and integration with other tools.
 
 The release notes below describe the individual techniques and their limitations.
+
+## What's new in 1.81.5
+
+- Validate URL-list input before opening output files, preserving previous results
+  when target input is missing, empty or unreadable.
+- Metadata-only requests drain at most 64 KiB before closing the response, avoiding
+  full downloads of large bodies while retaining connection reuse for small ones.
+  Content-based probes retain their existing body limits.
 
 ## What's new in 1.81.4
 

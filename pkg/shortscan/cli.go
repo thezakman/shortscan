@@ -513,6 +513,35 @@ func Run() {
 		}
 	}
 
+	// Resolve target input before opening (and truncating) any output file.
+	if args.List != "" {
+		f, err := os.Open(args.List)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Fatal("Unable to open URL list file")
+		}
+		urls, err := readURLList(f)
+		f.Close()
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Fatal("Error reading URL list file")
+		}
+		args.Urls = append(args.Urls, urls...)
+	}
+
+	// Expand any @file entries from the positional URL list
+	args.Urls = expandUrlArgs(args.Urls)
+	// When no URLs are given on the command line and stdin is piped (not a TTY), read
+	// newline-delimited URLs from it: `cat urls.txt | shortscan`, `echo url | shortscan`.
+	if len(args.Urls) == 0 && !isatty.IsTerminal(os.Stdin.Fd()) && !isatty.IsCygwinTerminal(os.Stdin.Fd()) {
+		urls, err := readURLList(os.Stdin)
+		if err != nil {
+			p.Fail("unable to read URLs from stdin: " + err.Error())
+		}
+		args.Urls = append(args.Urls, urls...)
+	}
+	if len(args.Urls) == 0 && len(args.PathInfoProbe) == 0 {
+		p.Fail("no target URLs supplied; provide a URL, --list FILE, @FILE, or URLs on stdin")
+	}
+
 	// Redirect output to a file if requested
 	if args.OutputFile != "" {
 		fh, err := os.Create(args.OutputFile)
@@ -588,19 +617,6 @@ func Run() {
 	// output is an interactive human TTY; stops on return.
 	defer progress.start(st)()
 
-	if args.List != "" {
-		f, err := os.Open(args.List)
-		if err != nil {
-			log.WithFields(log.Fields{"err": err}).Fatal("Unable to open URL list file")
-		}
-		urls, err := readURLList(f)
-		f.Close()
-		if err != nil {
-			log.WithFields(log.Fields{"err": err}).Fatal("Error reading URL list file")
-		}
-		args.Urls = append(args.Urls, urls...)
-	}
-
 	// --auto / --full: one switch that turns on the whole recovery cascade so each
 	// item gets the maximum chance of a full-name (and, precondition-gated, content)
 	// recovery. --auto is balanced; --full is exhaustive for reporting.
@@ -611,17 +627,6 @@ func Run() {
 		args.CrawlReferences = true
 	}
 
-	// Expand any @file entries from the positional URL list
-	args.Urls = expandUrlArgs(args.Urls)
-	// When no URLs are given on the command line and stdin is piped (not a TTY), read
-	// newline-delimited URLs from it: `cat urls.txt | shortscan`, `echo url | shortscan`.
-	if len(args.Urls) == 0 && !isatty.IsTerminal(os.Stdin.Fd()) && !isatty.IsCygwinTerminal(os.Stdin.Fd()) {
-		urls, err := readURLList(os.Stdin)
-		if err != nil {
-			p.Fail("unable to read URLs from stdin: " + err.Error())
-		}
-		args.Urls = append(args.Urls, urls...)
-	}
 	if len(args.ExactShorts) > 0 {
 		if len(args.Urls) == 0 {
 			p.Fail("exact-short requires at least one URL")

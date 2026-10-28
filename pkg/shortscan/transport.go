@@ -229,15 +229,18 @@ func recordHTTPStats(st *httpStats, req *http.Request, res *http.Response, retri
 	}
 }
 
-// fetch requests a URL, drains its body using constant memory for connection
-// reuse, and returns response metadata. DumpResponse(..., true) used to buffer
-// entire DLLs and could exhaust memory on source-disclosure scans.
+// metadataDrainLimit bounds discarded response data when only headers matter.
+// Small bodies are drained for connection reuse; large bodies are closed early.
+const metadataDrainLimit int64 = 64 * 1024
+
+// fetch requests a URL and returns response metadata without downloading an
+// arbitrarily large body. Content-based checks use fetchBody instead.
 func fetch(hc *http.Client, st *httpStats, method, url string) (*http.Response, error) {
 	req, res, retries, err := executeRequest(hc, st, method, url)
 	if err != nil {
 		return nil, err
 	}
-	n, copyErr := io.Copy(io.Discard, res.Body)
+	n, copyErr := io.Copy(io.Discard, io.LimitReader(res.Body, metadataDrainLimit))
 	res.Body.Close()
 	res.Body = http.NoBody
 	recordHTTPStats(st, req, res, retries, n)

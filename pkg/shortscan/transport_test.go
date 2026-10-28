@@ -127,3 +127,48 @@ func TestCancellationInterruptsRetryWait(t *testing.T) {
 		t.Fatal("cancellation did not interrupt retry wait")
 	}
 }
+
+// countedBody also models a response with far more data than a metadata probe needs.
+type countedBody struct {
+	remaining int64
+	read      int64
+	closed    bool
+}
+
+func (b *countedBody) Read(p []byte) (int, error) {
+	if b.remaining == 0 {
+		return 0, io.EOF
+	}
+	n := min(len(p), int(b.remaining))
+	clear(p[:n])
+	b.remaining -= int64(n)
+	b.read += int64(n)
+	return n, nil
+}
+func (b *countedBody) Close() error { b.closed = true; return nil }
+
+func TestMetadataFetchBoundsBodyAndClosesIt(t *testing.T) {
+	previousArgs := args
+	defer func() { args = previousArgs }()
+	args = arguments{}
+	for _, size := range []int64{128, metadataDrainLimit, metadataDrainLimit * 100} {
+		body := &countedBody{remaining: size}
+		hc := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Header: http.Header{"X-Test": []string{"preserved"}}, Body: body, Request: req}, nil
+		})}
+		res, err := fetch(hc, &httpStats{}, "GET", "http://example.test/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := size
+		if want > metadataDrainLimit {
+			want = metadataDrainLimit
+		}
+		if body.read != want || !body.closed || res.Body != http.NoBody {
+			t.Fatalf("size=%d read=%d closed=%v", size, body.read, body.closed)
+		}
+		if res.StatusCode != 200 || res.Header.Get("X-Test") != "preserved" {
+			t.Fatal("metadata lost")
+		}
+	}
+}
