@@ -1,8 +1,8 @@
 package levenshtein
 
 import (
-        "unicode/utf8"
 	"github.com/thezakman/shortscan/pkg/maths"
+	"unicode/utf8"
 )
 
 // Distance returns the Levenshtein edit distance for two strings

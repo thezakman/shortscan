@@ -17,12 +17,3 @@ func Max(a, b int) int {
 		return b
 	}
 }
-
-// ... yeah
-func MaxFloat32(a, b float32) float32 {
-	if a >= b {
-		return a
-	} else {
-		return b
-	}
-}

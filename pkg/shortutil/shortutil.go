@@ -8,19 +8,21 @@
 package shortutil
 
 import (
-	"io"
-	"os"
+	"bufio"
 	"fmt"
+	"github.com/alexflint/go-arg"
+	"github.com/fatih/color"
+	"github.com/thezakman/shortscan/pkg/maths"
+	"io"
 	"log"
 	"math"
-	"path"
-	"bufio"
-	"regexp"
-	"strings"
 	"net/url"
-	"github.com/fatih/color"
-	"github.com/alexflint/go-arg"
-	"github.com/thezakman/shortscan/pkg/maths"
+	"os"
+	"path"
+	"regexp"
+	"sort"
+	"strings"
+	"unicode/utf16"
 )
 
 type wordlistRecord struct {
@@ -52,17 +54,42 @@ var paramRegex = regexp.MustCompile("[?;#&\r\n]")
 // Special character rules taken from the leaked Windows 2003 source (gen8dot3.c)
 var shortReplacer = strings.NewReplacer(" ", "", ".", "", ":", "_", "+", "_", ",", "_", ";", "_", "=", "_", "[", "_", "]", "_")
 
+// stripNonASCII deletes every character outside the ASCII range. Per
+// [MS-FSCC] 2.1.5.2.1, an 8.3 short name "MUST only contain characters that
+// can be represented in ASCII" and "illegal characters ... are deleted from
+// long filenames" — so an accented or non-Latin character isn't translated
+// to an underscore like the shortReplacer set, it's dropped entirely. Runs
+// after shortReplacer, whose replacements are all themselves ASCII.
+func stripNonASCII(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r < 0x80 {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // Version
-const version = "0.4"
+const version = "0.6"
 
 // Checksum calculates the short filename checksum for the given filename
 // Based on: https://tomgalvin.uk/assets/8dot3-checksum.c
 // Docs: https://tomgalvin.uk/blog/gen/2015/06/09/filenames/
+//
+// The reference C loops over a PWSTR (UTF-16 code units), not Unicode code
+// points. For any character outside the Basic Multilingual Plane, NTFS
+// sees a surrogate pair — two 16-bit units — and the checksum loop runs
+// twice for it. Encoding to UTF-16 first (rather than ranging over the
+// string, which yields one full code point per iteration) is what makes
+// that match for non-BMP filenames; BMP characters are unaffected since a
+// UTF-16 code unit and a Go rune are the same value there.
 func Checksum(f string) string {
 
 	var ck uint16
-	for _, c := range f {
-		ck = ck*0x25 + uint16(c)
+	for _, c := range utf16.Encode([]rune(f)) {
+		ck = ck*0x25 + c
 	}
 
 	t := int32(math.Abs(float64(int32(ck) * 314159269)))
@@ -80,17 +107,26 @@ func Checksum(f string) string {
 // of the checksum algorithm contained in the leaked Windows 2003 Server source
 func ChecksumOriginal(f string) string {
 
+	// Guard the paired seed: filenames shorter than two bytes would panic on
+	// f[0]/f[1]. Names this short never need an 8.3 alias, so their checksum is
+	// only ever reached through the one-off `checksum` command — handle it
+	// without crashing rather than requiring the caller to pre-validate.
 	var ck uint16
-	ck = (uint16(f[0])<<8 + uint16(f[1])) & 0xffff
-	for i := 2; i < len(f); i+=2 {
-		if ck & 1 == 1 {
-			ck = 0x8000 + ck>>1 + uint16(f[i])<<8
-		} else {
-			ck = ck>>1 + uint16(f[i])<<8
+	switch {
+	case len(f) >= 2:
+		ck = (uint16(f[0])<<8 + uint16(f[1])) & 0xffff
+		for i := 2; i < len(f); i += 2 {
+			if ck&1 == 1 {
+				ck = 0x8000 + ck>>1 + uint16(f[i])<<8
+			} else {
+				ck = ck>>1 + uint16(f[i])<<8
+			}
+			if i+1 < len(f) {
+				ck += uint16(f[i+1]) & 0xffff
+			}
 		}
-		if (i+1 < len(f)) {
-		    ck += uint16(f[i+1]) & 0xffff
-		}
+	case len(f) == 1:
+		ck = uint16(f[0]) << 8
 	}
 
 	ck = (ck&0xf000)>>12 | (ck&0x0f00)>>4 | (ck&0x00f0)<<4 | (ck&0x000f)<<12
@@ -103,22 +139,25 @@ func Gen8dot3(file string, ext string) (bool, string, string) {
 
 	// Upper case the filename and and replace special characters
 	fu := strings.ToUpper(file)
-	fr := shortReplacer.Replace(fu)
+	fr := stripNonASCII(shortReplacer.Replace(fu))
 
 	// Upper case the extension and replace special characters
 	eu := strings.ToUpper(ext)
-	er := shortReplacer.Replace(eu)
+	er := stripNonASCII(shortReplacer.Replace(eu))
 
 	// Determine whether a short filename was required
-	r := len(file) > 8 || len (ext) > 3 || fu != fr || eu != er
+	r := len(file) > 8 || len(ext) > 3 || fu != fr || eu != er
 
-	// Trim and return the names
+	// Trim and return the names. fr/er are guaranteed pure ASCII (one byte
+	// per character) by stripNonASCII, so slicing by byte count here is the
+	// same as slicing by character count.
 	return r, fr[:maths.Min(len(fr), 6)], er[:maths.Min(len(er), 3)]
 
 }
 
-// ChecksumWords turns a list of words into a word/checksum map
-func ChecksumWords(fh io.Reader, paramRegex *regexp.Regexp) []wordlistRecord {
+// ChecksumWords turns a list of words into a word/checksum map. variants adds
+// checksums for the case-folded forms of each word on top of the word's own.
+func ChecksumWords(fh io.Reader, paramRegex *regexp.Regexp, variants bool) []wordlistRecord {
 
 	// Loop through each word in the wordlist
 	var wc []wordlistRecord
@@ -139,7 +178,7 @@ func ChecksumWords(fh io.Reader, paramRegex *regexp.Regexp) []wordlistRecord {
 		// Split the file and extension
 		var f, e string
 		if p := strings.LastIndex(w, "."); p > 0 && w[0] != '.' {
-			f, e = w[:p], w[p + 1:]
+			f, e = w[:p], w[p+1:]
 		} else {
 			f, e = w, ""
 		}
@@ -152,18 +191,27 @@ func ChecksumWords(fh io.Reader, paramRegex *regexp.Regexp) []wordlistRecord {
 			continue
 		}
 
-		// Generate checksums for case variants
+		// Always emit the word's own checksum so a rainbow can still resolve
+		// checksummed collision-mode aliases (PPHHHH~N); --variants adds the
+		// case-folded forms, because NTFS computes the checksum over the stored
+		// case, which the attacker does not know in advance.
 		vs := make(map[string]struct{})
-		if args.Wordlist.Variants {
-			vs[Checksum(w)] = struct{}{}
+		vs[Checksum(w)] = struct{}{}
+		if variants {
 			vs[Checksum(strings.ToLower(w))] = struct{}{}
 			vs[Checksum(strings.ToUpper(w))] = struct{}{}
 			vs[Checksum(strings.Title(w))] = struct{}{}
 		}
-		var c string
+		// Concatenate the variant checksums in sorted order so the rainbow
+		// output is deterministic (map iteration order is randomised). shortscan
+		// reads the field as an unordered set of 4-char chunks (mergeChecksums),
+		// so ordering never affects matching — only reproducibility.
+		keys := make([]string, 0, len(vs))
 		for v := range vs {
-			c += v
+			keys = append(keys, v)
 		}
+		sort.Strings(keys)
+		c := strings.Join(keys, "")
 
 		// Add the wordlist entry to the list
 		wc = append(wc, wordlistRecord{c, f, e, f83, e83})
@@ -181,13 +229,12 @@ func Run() {
 	// Parse command-line arguments
 	p := arg.MustParse(&args)
 	if p.Subcommand() == nil {
-		fmt.Println(color.New(color.FgBlue, color.Bold).Sprint("Shortutil v" + version), "·", color.New(color.FgWhite, color.Bold).Sprint("a short filename utility by bitquark & TheZakMan"))
+		fmt.Println(color.New(color.FgBlue, color.Bold).Sprint("Shortutil v"+version), "·", color.New(color.FgWhite, color.Bold).Sprint("a short filename utility by bitquark & TheZakMan"))
 		p.WriteHelp(os.Stderr)
 		os.Exit(1)
 	}
 
 	// Set the data source
-	var err error
 	var fh io.Reader
 
 	switch {
@@ -196,15 +243,17 @@ func Run() {
 	case args.Wordlist != nil:
 
 		// Open the wordlist
-		fh, err = os.Open(args.Wordlist.Filename)
+		f, err := os.Open(args.Wordlist.Filename)
 		if err != nil {
 			log.Fatalf("Error: %s\n", err)
 		}
+		defer f.Close()
+		fh = f
 
 		// Ouput the header and start checksumming
 		fmt.Println("#SHORTSCAN#")
 		words := make(map[string]struct{})
-		for _, w := range ChecksumWords(fh, paramRegex) {
+		for _, w := range ChecksumWords(fh, paramRegex, args.Wordlist.Variants) {
 
 			// Upper case the wordlist entry
 			var f, e string

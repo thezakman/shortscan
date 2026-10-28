@@ -1,0 +1,29 @@
+# Local build and test artifacts
+/shortscan
+/shortutil
+/shortloot
+/shortgen
+/cmd/shortscan/shortscan
+*.test
+coverage.out
+*.prof
+
+# macOS metadata
+.DS_Store
+
+# Local research and unpublished experiments
+/research/
+/examples/
+/fuzz-IIS/
+/test/
+/.trash/
+
+# Local scan output and release archives
+/*-scan.txt
+/iis*.txt
+/iss-scan.txt
+/output-shortscan.txt
+/shortscan-*.zip
+
+# Source-disclosure loot (downloaded DLLs)
+/shortscan-loot/
