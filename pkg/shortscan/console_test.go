@@ -56,7 +56,7 @@ func TestQuietCrawlPreservesStructuredRecordsAndErrors(t *testing.T) {
 	}
 }
 
-func TestActiveModesWrapWithoutLosingModes(t *testing.T) {
+func TestActiveModesStayOnOneLine(t *testing.T) {
 	previousArgs, previousWriter := args, outputWriter
 	defer func() { args, outputWriter = previousArgs, previousWriter }()
 	args = arguments{Output: "human"}
@@ -64,7 +64,7 @@ func TestActiveModesWrapWithoutLosingModes(t *testing.T) {
 	outputWriter = &out
 	modes := []string{strings.Repeat("a", 50), strings.Repeat("b", 50), "retrieve"}
 	printModeLines("Active:", modes)
-	if strings.Count(out.String(), "\n") != 2 {
+	if strings.Count(out.String(), "\n") != 1 {
 		t.Fatalf("unexpected wrapping: %q", out.String())
 	}
 	for _, mode := range modes {

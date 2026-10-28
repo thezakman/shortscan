@@ -6,23 +6,10 @@ import (
 	"github.com/fatih/color"
 )
 
-// printModeLines wraps at mode boundaries instead of leaving a single long line.
+// printModeLines leaves wrapping to the terminal's actual width.
 func printModeLines(label string, modes []string) {
-	const width = 88
-	line := ""
-	prefix := label + " "
-	for _, mode := range modes {
-		if line != "" && len(line)+len(mode)+3 > width {
-			printHuman(prefix + color.HiCyanString(line))
-			prefix, line = "        ", ""
-		}
-		if line != "" {
-			line += " · "
-		}
-		line += mode
-	}
-	if line != "" {
-		printHuman(prefix + color.HiCyanString(line))
+	if len(modes) > 0 {
+		printHuman(label + " " + color.HiCyanString(strings.Join(modes, " · ")))
 	}
 }
 
