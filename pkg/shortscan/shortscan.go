@@ -134,7 +134,7 @@ func (ac *attackConfig) flushDeferredFindings() {
 }
 
 // Version, rainbow table magic, default character set
-const version = "1.81.6"
+const version = "1.81.7"
 const rainbowMagic = "#SHORTSCAN#"
 const alphanum = "JFKGOTMYVHSPCANDXLRWEBQUIZ8549176320"
 

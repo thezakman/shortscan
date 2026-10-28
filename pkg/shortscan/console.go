@@ -9,7 +9,14 @@ import (
 // printModeLines leaves wrapping to the terminal's actual width.
 func printModeLines(label string, modes []string) {
 	if len(modes) > 0 {
-		printHuman(label + " " + color.HiCyanString(strings.Join(modes, " · ")))
+		text := strings.Join(modes, ", ")
+		if modes[0] == color.HiMagentaString("auto") || modes[0] == color.HiMagentaString("full") {
+			text = modes[0]
+			if len(modes) > 1 {
+				text += " [" + strings.Join(modes[1:], ", ") + "]"
+			}
+		}
+		printHuman(label + " " + color.HiCyanString(text))
 	}
 }
 
