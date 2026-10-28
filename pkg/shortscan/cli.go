@@ -1,7 +1,6 @@
 package shortscan
 
 import (
-	"bufio"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -214,14 +213,12 @@ func expandUrlArgs(in []string) []string {
 			if err != nil {
 				log.WithFields(log.Fields{"file": fn, "err": err}).Fatal("Unable to open URL file (@-prefix)")
 			}
-			s := bufio.NewScanner(fh)
-			for s.Scan() {
-				line := strings.TrimSpace(s.Text())
-				if line != "" && !strings.HasPrefix(line, "#") {
-					out = append(out, line)
-				}
-			}
+			urls, err := readURLList(fh)
 			fh.Close()
+			if err != nil {
+				log.WithFields(log.Fields{"file": fn, "err": err}).Fatal("Unable to read URL file (@-prefix)")
+			}
+			out = append(out, urls...)
 		} else {
 			out = append(out, u)
 		}
@@ -596,14 +593,12 @@ func Run() {
 		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Fatal("Unable to open URL list file")
 		}
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			args.Urls = append(args.Urls, scanner.Text())
-		}
-		if err := scanner.Err(); err != nil {
+		urls, err := readURLList(f)
+		f.Close()
+		if err != nil {
 			log.WithFields(log.Fields{"err": err}).Fatal("Error reading URL list file")
 		}
-		f.Close()
+		args.Urls = append(args.Urls, urls...)
 	}
 
 	// --auto / --full: one switch that turns on the whole recovery cascade so each
@@ -621,12 +616,11 @@ func Run() {
 	// When no URLs are given on the command line and stdin is piped (not a TTY), read
 	// newline-delimited URLs from it: `cat urls.txt | shortscan`, `echo url | shortscan`.
 	if len(args.Urls) == 0 && !isatty.IsTerminal(os.Stdin.Fd()) && !isatty.IsCygwinTerminal(os.Stdin.Fd()) {
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			if line := strings.TrimSpace(scanner.Text()); line != "" && !strings.HasPrefix(line, "#") {
-				args.Urls = append(args.Urls, line)
-			}
+		urls, err := readURLList(os.Stdin)
+		if err != nil {
+			p.Fail("unable to read URLs from stdin: " + err.Error())
 		}
+		args.Urls = append(args.Urls, urls...)
 	}
 	if len(args.ExactShorts) > 0 {
 		if len(args.Urls) == 0 {
@@ -690,6 +684,9 @@ func Run() {
 		runPathInfoProbe(args.PathInfoProbe, hc, st)
 		printFinishedStats(st)
 		return
+	}
+	if len(args.Urls) == 0 {
+		p.Fail("no target URLs supplied; provide a URL, --list FILE, @FILE, or URLs on stdin")
 	}
 	mk := markers{}
 	wc, err := configureWordlists(args.Wordlists)
