@@ -1,28 +1,34 @@
 # 🌀 Shortscan
 
-An IIS short filename enumeration and canonicalization research tool. **v1.81.0**
-adds guarded cross-stack reads through directory `$INDEX_ALLOCATION` namespaces
-after confirming an Express route-auth bypass on Windows. v1.80.1 added
-high-value detection for IIS WebDAV `properties.dav` databases recovered through
-guarded cross-stack 8.3 retrieval. v1.80.0 added a validated
-IIS/System.Web research bundle for request-body limits, multipart
-cache keys and FastCGI header namespaces. v1.79.0 turns conventional
-request-filtered ASP.NET/NuGet manifests into quarantined stem
-evidence for actively verified, readable sibling names. v1.78.0 extended the
-cross-stack retrieval chain to known NTFS named streams after confirming
-that Node `serve-static` 2.2.1 serves both an 8.3 alias and its named ADS, and that
-ASP.NET Core 10.0.12 default StaticFileMiddleware serves MIME-mapped aliases, from
-the same Windows NTFS root where IIS blocks them. v1.76.0 added a fully enumerable
-header-signature oracle for reverse proxies/WAFs that flatten the IIS status
-differential while preserving categorical origin headers. v1.45.0 makes
-method-magic self-validating per extension: a `405` "this exists" only counts when it differs
-from a same-extension baseline, so 405-for-everything servers stop producing recovered names
-that don't exist — while requestFiltering-hidden files are still recovered wherever the `405`
-signal is genuinely real. v1.44 added the extension-dimension catch-all guard. v1.43 killed
-three false-positive sources against catch-all / soft-404 front ends (a `#` in an 8.3 alias
-fetching the directory root, unguarded `--mutate-ext` hits, and serve-everything enumeration
-explosions). v1.42 made `--maxtime` default to `0` (no limit) so a recursive `-r` scan is
-never silently truncated.
+**Shortscan v1.81.0** is an IIS short filename enumeration and recovery tool,
+rewritten and expanded by **TheZakMan** from the original project by **bitquark**.
+
+The rewrite reorganizes the original large script into a modular Go codebase.
+HTTP transport, enumeration, filename recovery, fingerprinting, command-line
+handling and output each have dedicated files, with supporting packages for
+checksum recovery and .NET metadata inspection. This structure makes the code
+easier to navigate, maintain, test and extend as new techniques are added.
+
+The improvements cover both how the scanner works and how its results are presented:
+
+- **Broader filename recovery.** Wordlists, known extensions, crawled references,
+  related filenames, collision checksums and WebDAV listings help reconstruct
+  names beyond the information exposed by an 8.3 alias. Automatic modes coordinate
+  these techniques and report which method produced each result.
+- **Clearer scan output.** Results are grouped by target and technique, with active
+  features, recovery counts and HTTP statuses visible alongside the names. A
+  compact two-column layout shows each short name and its recovered name or
+  unresolved pattern, removing the redundant intermediate column from the older
+  output.
+- **Explicit evidence and uncertainty.** Confirmed names, inferred candidates and
+  inconclusive signals have distinct labels. Response controls help reject
+  catch-all pages and reduce false positives, while fingerprinting provides
+  context for interpreting the results.
+- **More control over larger scans.** Concurrent requests and parallel targets,
+  rate limiting, retries, recursive discovery and structured output support
+  repeatable scans and integration with other tools.
+
+The release notes below describe the individual techniques and their limitations.
 
 ## What's new in 1.81.0
 
