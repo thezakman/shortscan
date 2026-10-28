@@ -1,6 +1,6 @@
 # 🌀 Shortscan
 
-**Shortscan v1.81.1** is an IIS short filename enumeration and recovery tool,
+**Shortscan v1.81.2** is an IIS short filename enumeration and recovery tool,
 rewritten and expanded by **TheZakMan** from the original project by **bitquark**.
 
 The rewrite reorganizes the original large script into a modular Go codebase.
@@ -29,6 +29,13 @@ The improvements cover both how the scanner works and how its results are presen
   repeatable scans and integration with other tools.
 
 The release notes below describe the individual techniques and their limitations.
+
+## What's new in 1.81.2
+
+- CSV export now preserves quotes, backslashes, commas and multiline values using
+  standard CSV escaping. Column names and ordering remain unchanged.
+- Output-path validation detects the same new file reached through directory
+  symlinks, preventing result and candidate exports from sharing a destination.
 
 ## What's new in 1.81.1
 

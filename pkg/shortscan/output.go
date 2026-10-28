@@ -1,6 +1,7 @@
 package shortscan
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -392,13 +393,19 @@ func printJSON(o any) {
 			if r.LFNAssociationVerified != nil {
 				lfnAssociationVerified = strconv.FormatBool(*r.LFNAssociationVerified)
 			}
-			fmt.Fprintf(outputWriter, "%s,%t,%t,%t,%q,%q,%q,%q,%q,%q,%q,%q,%d,%q,%q,%q,%q,%q,%q,%q,%q,%q,%q,%t,%t,%t,%q\n",
-				r.Type, r.FullMatch, r.Tentative, r.SourceDisclosure, r.DisclosureType,
-				r.BaseUrl, r.File, r.Ext, r.Tilde, r.Partname, r.Fullname, r.MatchType, r.Status,
-				r.CollisionGroup, ordinalVerified, r.Oracle, r.Method, r.ProbeSuffix,
-				r.Checksum, r.DerivedFrom, strings.Join(r.CandidateFamilies, "|"), aliasVerified,
-				lfnAssociationVerified, r.CustomSFNCandidate, r.CanonicalGuardBypassCandidate,
-				r.DirectoryConfirmed, r.SensitiveReason)
+			writer := csv.NewWriter(outputWriter)
+			_ = writer.Write([]string{
+				r.Type, strconv.FormatBool(r.FullMatch), strconv.FormatBool(r.Tentative),
+				strconv.FormatBool(r.SourceDisclosure), r.DisclosureType,
+				r.BaseUrl, r.File, r.Ext, r.Tilde, r.Partname, r.Fullname,
+				r.MatchType, strconv.Itoa(r.Status), r.CollisionGroup,
+				ordinalVerified, r.Oracle, r.Method, r.ProbeSuffix, r.Checksum,
+				r.DerivedFrom, strings.Join(r.CandidateFamilies, "|"), aliasVerified,
+				lfnAssociationVerified, strconv.FormatBool(r.CustomSFNCandidate),
+				strconv.FormatBool(r.CanonicalGuardBypassCandidate),
+				strconv.FormatBool(r.DirectoryConfirmed), r.SensitiveReason,
+			})
+			writer.Flush()
 		} else {
 			warnCSVDroppedRecordOnce()
 		}

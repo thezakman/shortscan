@@ -229,6 +229,15 @@ func sameFilePath(left, right string) bool {
 	if leftErr != nil || rightErr != nil {
 		return filepath.Clean(left) == filepath.Clean(right)
 	}
+	// Output files may not exist yet. Resolve their existing parent directories
+	// so two spellings through a directory symlink cannot open the same output
+	// twice (or interleave the result and candidate streams).
+	if parent, err := filepath.EvalSymlinks(filepath.Dir(leftPath)); err == nil {
+		leftPath = filepath.Join(parent, filepath.Base(leftPath))
+	}
+	if parent, err := filepath.EvalSymlinks(filepath.Dir(rightPath)); err == nil {
+		rightPath = filepath.Join(parent, filepath.Base(rightPath))
+	}
 	return filepath.Clean(leftPath) == filepath.Clean(rightPath)
 }
 

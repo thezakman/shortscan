@@ -1477,7 +1477,7 @@ func TestCSVRecoveryIncludesCollisionAndProbeProvenance(t *testing.T) {
 	if !strings.Contains(got, "collisiongroup,ordinalverified,oracle,method,probesuffix") {
 		t.Fatalf("CSV header omitted recovery provenance: %q", got)
 	}
-	if !strings.Contains(got, `"PAGEDL~*.DLL","false","distance","OPTIONS","/~1.rem"`) {
+	if !strings.Contains(got, `PAGEDL~*.DLL,false,distance,OPTIONS,/~1.rem`) {
 		t.Fatalf("CSV row omitted recovery provenance: %q", got)
 	}
 }
@@ -1518,7 +1518,7 @@ func TestStructuredOutputCarriesDirectoryConfirmed(t *testing.T) {
 	if !strings.Contains(got, "canonicalguardbypasscandidate,directoryconfirmed,sensitivereason") {
 		t.Fatalf("CSV header must include directoryconfirmed and sensitivereason, got %q", got)
 	}
-	if !strings.HasSuffix(strings.TrimRight(got, "\n"), `,true,""`) {
+	if !strings.HasSuffix(strings.TrimRight(got, "\n"), `,true,`) {
 		t.Fatalf("CSV row must end with directoryconfirmed=true, sensitivereason=\"\", got %q", got)
 	}
 }
@@ -1556,7 +1556,7 @@ func TestStructuredOutputCarriesSensitiveReason(t *testing.T) {
 		SensitiveReason: reason,
 	})
 	got := csvOut.String()
-	if !strings.HasSuffix(strings.TrimRight(got, "\n"), `,"`+reason+`"`) {
+	if !strings.HasSuffix(strings.TrimRight(got, "\n"), `,`+reason) {
 		t.Fatalf("CSV row must end with sensitivereason=%q, got %q", reason, got)
 	}
 }
