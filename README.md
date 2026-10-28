@@ -1,6 +1,6 @@
 # 🌀 Shortscan
 
-**Shortscan v1.81.5** is an IIS short filename enumeration and recovery tool,
+**Shortscan v1.81.6** is an IIS short filename enumeration and recovery tool,
 rewritten and expanded by **TheZakMan** from the original project by **bitquark**.
 
 The rewrite reorganizes the original large script into a modular Go codebase.
@@ -29,6 +29,13 @@ The improvements cover both how the scanner works and how its results are presen
   repeatable scans and integration with other tools.
 
 The release notes below describe the individual techniques and their limitations.
+
+## What's new in 1.81.6
+
+- Long-name recovery rejects HTTP 429, 502, 503 and 504 as existence evidence.
+- Status and response-distance recovery also reject baselines contaminated by
+  these infrastructure errors, including errors seen during baseline escalation.
+  A gateway timeout must not promote a wordlist guess to a recovered name.
 
 ## What's new in 1.81.5
 

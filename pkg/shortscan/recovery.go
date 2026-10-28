@@ -464,14 +464,27 @@ func escalateStatusBaseline(c wordlistRecord, br baseRequest, hc *http.Client, s
 // Before trusting an apparent hit (status absent from the small baseline), the
 // baseline is escalated with more probes and the hit must still stand.
 func statusExistsAgainstBaseline(c wordlistRecord, br baseRequest, hc *http.Client, st *httpStats, method, suffix string, status int) bool {
+	if isTransientInfraStatus(status) {
+		return false
+	}
 	statuses := getStatusesForProbe(c, br, hc, st, method, suffix)
 	if len(statuses) == 0 {
 		return false
+	}
+	for code := range statuses {
+		if isTransientInfraStatus(code) {
+			return false
+		}
 	}
 	if _, seen := statuses[status]; seen {
 		return false
 	}
 	escalated := escalateStatusBaseline(c, br, hc, st, method, suffix)
+	for code := range escalated {
+		if isTransientInfraStatus(code) {
+			return false
+		}
+	}
 	_, stillMissing := escalated[status]
 	return !stillMissing
 }
@@ -497,6 +510,9 @@ func probeAutocompleteCandidate(hc *http.Client, st *httpStats, ac *attackConfig
 	}
 	if err != nil {
 		return nil, false, err
+	}
+	if isTransientInfraStatus(res.StatusCode) {
+		return res, false, nil
 	}
 	matched := false
 	switch ac.autocomplete {
@@ -1253,8 +1269,14 @@ func getDistancesForProbe(c wordlistRecord, br baseRequest, hc *http.Client, st 
 }
 
 func differsFromDistanceBaseline(status int, body []byte, dists map[int]distances) (bool, float32, float32) {
+	if isTransientInfraStatus(status) {
+		return false, 0, 0
+	}
 	totalSamples := 0
-	for _, baseline := range dists {
+	for code, baseline := range dists {
+		if isTransientInfraStatus(code) {
+			return false, 0, 0
+		}
 		totalSamples += baseline.samples
 	}
 	if totalSamples < 2 {
