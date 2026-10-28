@@ -134,7 +134,7 @@ func (ac *attackConfig) flushDeferredFindings() {
 }
 
 // Version, rainbow table magic, default character set
-const version = "1.81.2"
+const version = "1.81.3"
 const rainbowMagic = "#SHORTSCAN#"
 const alphanum = "JFKGOTMYVHSPCANDXLRWEBQUIZ8549176320"
 
@@ -798,7 +798,7 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 								if resolvedLong && match.status != 0 {
 									ff += " (" + colorStatus(match.status) + ")"
 								}
-								if match.matchType != "" {
+								if match.matchType != "" && args.Verbosity > 0 {
 									ordinal := "ordinal unverified"
 									if match.ordinalVerified {
 										ordinal = "exact alias path"
@@ -815,6 +815,12 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 										ff += color.HiBlackString(" [%s]", annotation)
 									}
 								}
+								if args.Verbosity == 0 && resolvedLong && !match.ordinalVerified {
+									ff += color.HiBlackString(" [group match]")
+								}
+								if args.Verbosity == 0 && isInferred {
+									ff += " " + color.YellowString("[candidate; filtered]")
+								}
 								if sensitiveReason != "" {
 									if isInferred {
 										// Inferred from the wordlist, never HTTP-confirmed, and
@@ -823,7 +829,9 @@ func enumerate(sem chan struct{}, wg *sync.WaitGroup, hc *http.Client, st *httpS
 										// [SENSITIVE] tag, no "connection strings / machineKey" copy
 										// that implies loot in hand. It is a candidate the operator
 										// would still have to reach through some other vector.
-										ff += "  " + color.YellowString("[candidate, not confirmed; request-filtered, no direct GET]")
+										if args.Verbosity > 0 {
+											ff += "  " + color.YellowString("[candidate, not confirmed; request-filtered, no direct GET]")
+										}
 									} else {
 										ff += "  " + color.HiRedString("[SENSITIVE] %s", sensitiveReason)
 									}
@@ -1506,7 +1514,7 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc *wordlistConfig, mk 
 					if len(modes) == 0 {
 						printHuman(label, color.HiBlackString("default enumeration (no recovery/probe toggles)"))
 					} else {
-						printHuman(label, color.HiCyanString(strings.Join(modes, " · ")))
+						printModeLines(label, modes)
 					}
 				}
 			}
@@ -1622,6 +1630,9 @@ func Scan(urls []string, hc *http.Client, st *httpStats, wc *wordlistConfig, mk 
 			printHuman(color.HiCyanString("[SHORTNAMES] %d/%d resolved to full name", resolved, len(shown)))
 			for _, line := range shown {
 				printHuman(line)
+			}
+			if args.Verbosity == 0 {
+				printResultLegend(shown)
 			}
 		}
 		// Now on the main goroutine (all enumerate workers joined): flush the

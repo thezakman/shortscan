@@ -101,7 +101,7 @@ func TestFingerprintNonIISBannerStaysAmbiguous(t *testing.T) {
 	})}
 	runFingerprint("http://example.test/", client, &httpStats{}, true, "nginx [!]", true)
 	got := output.String()
-	if !strings.Contains(got, "interesting") || strings.Contains(got, "STRONG") || strings.Contains(got, "likely discloses") {
+	if (!strings.Contains(got, "Cross-stack candidate") || !strings.Contains(got, "file access not confirmed")) || strings.Contains(got, "STRONG") || strings.Contains(got, "likely discloses") {
 		t.Fatalf("non-IIS banner verdict was overclaimed: %q", got)
 	}
 }
@@ -124,7 +124,7 @@ func TestFingerprintUpgradesTildeResultDuringRecursion(t *testing.T) {
 	firstLen := output.Len()
 	runFingerprint("http://example.test/second/", client, &httpStats{}, true, "Microsoft-IIS/10.0", false)
 	upgrade := output.String()[firstLen:]
-	if !strings.Contains(upgrade, "8.3 oracle") || !strings.Contains(upgrade, "yes") {
+	if !strings.Contains(upgrade, "8.3:yes") {
 		t.Fatalf("later vulnerable directory did not upgrade fingerprint: %q", upgrade)
 	}
 }

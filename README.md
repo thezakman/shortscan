@@ -1,6 +1,6 @@
 # 🌀 Shortscan
 
-**Shortscan v1.81.2** is an IIS short filename enumeration and recovery tool,
+**Shortscan v1.81.3** is an IIS short filename enumeration and recovery tool,
 rewritten and expanded by **TheZakMan** from the original project by **bitquark**.
 
 The rewrite reorganizes the original large script into a modular Go codebase.
@@ -29,6 +29,15 @@ The improvements cover both how the scanner works and how its results are presen
   repeatable scans and integration with other tools.
 
 The release notes below describe the individual techniques and their limitations.
+
+## What's new in 1.81.3
+
+- Compact console fingerprint with actionable signals retained; `-v 1` shows all
+  checks, including inconclusive results.
+- Short-name rows use brief group-match and filtered-candidate labels with a
+  shared explanation. Detailed provenance remains available with `-v 1`.
+- Active modes wrap across lines; empty crawl summaries are hidden in the default
+  human view, while crawl errors and structured records remain visible.
 
 ## What's new in 1.81.2
 

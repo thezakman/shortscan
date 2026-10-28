@@ -394,7 +394,7 @@ func fingerprintCompactLine(o fingerprintOutput) string {
 	case strings.HasPrefix(o.WebDAV, "enabled"):
 		parts = append(parts, "DAV:yes")
 	case o.WebDAV == "not advertised":
-		parts = append(parts, "DAV:no")
+		parts = append(parts, "DAV:not advertised")
 	}
 	if o.AllowCopyOracle {
 		parts = append(parts, "allow-copy")
@@ -408,6 +408,10 @@ func fingerprintCompactLine(o fingerprintOutput) string {
 // printFingerprintHuman renders the fingerprint block.
 func printFingerprintHuman(o fingerprintOutput) {
 	if args.Output != "human" {
+		return
+	}
+	if args.Verbosity == 0 {
+		printFingerprintSummary(o)
 		return
 	}
 	bold := color.New(color.FgWhite, color.Bold).Sprint

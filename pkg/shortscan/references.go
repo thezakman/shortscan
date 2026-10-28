@@ -498,14 +498,17 @@ func mergeReferenceCrawlStats(left, right referenceCrawlStats) referenceCrawlSta
 // enumeration itself resolved their long name) — since otherwise the two
 // printed lines are indistinguishable and read as the same crawl repeating.
 func reportReferenceCrawl(ac *attackConfig, stats referenceCrawlStats, label string) {
-	if stats.pages == 0 && stats.names == 0 {
+	if stats.pages == 0 && stats.names == 0 && stats.errors == 0 {
 		return
 	}
-	if bulkCompact() && stats.names == 0 {
+	if bulkCompact() && stats.names == 0 && stats.errors == 0 && args.Verbosity == 0 {
 		// No recovered names — pure crawl bookkeeping, noise in the compact view.
 		return
 	}
-	beginSection(ac)
+	showHuman := args.Verbosity > 0 || stats.names > 0 || stats.errors > 0
+	if showHuman {
+		beginSection(ac)
+	}
 	parts := []string{
 		pluralCount(stats.pages, "page", "pages"),
 		pluralCount(stats.references, "ref", "refs"),
@@ -515,7 +518,9 @@ func reportReferenceCrawl(ac *attackConfig, stats referenceCrawlStats, label str
 	if stats.errors > 0 {
 		parts = append(parts, pluralCount(stats.errors, "error", "errors"))
 	}
-	printHuman(color.HiCyanString("[REF-CRAWL:%s]", label) + " " + strings.Join(parts, " · "))
+	if showHuman {
+		printHuman(color.HiCyanString("[REF-CRAWL:%s]", label) + " " + strings.Join(parts, " · "))
+	}
 	printJSON(map[string]any{
 		"type": "reference-statistics", "phase": label, "pages": stats.pages, "references": stats.references,
 		"names": stats.names, "bytes": stats.bytes, "errors": stats.errors,
